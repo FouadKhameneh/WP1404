@@ -1,7 +1,9 @@
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.db import models
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -214,4 +216,150 @@ class CaseParticipant(models.Model):
 
     def __str__(self):
         return f"{self.case.case_number}:{self.role_in_case}"
+
+
+class Complaint(models.Model):
+    class Status(models.TextChoices):
+        SUBMITTED = "submitted", "Submitted"
+        CADET_REVIEW = "cadet_review", "Cadet Review"
+        VALIDATED = "validated", "Validated"
+        REJECTED = "rejected", "Rejected"
+        FINAL_INVALID = "final_invalid", "Final Invalid"
+
+    case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name="complaints")
+    complainant = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="complaints_submitted",
+    )
+    description = models.TextField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUBMITTED)
+    rejection_reason = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    validated_at = models.DateTimeField(null=True, blank=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["case", "status"]),
+            models.Index(fields=["complainant"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(status="final_invalid") | Q(invalidated_at__isnull=False),
+                name="cases_complaint_final_invalid_requires_invalidated_at",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="validated") | Q(validated_at__isnull=False),
+                name="cases_complaint_validated_requires_validated_at",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.case.case_number}:{self.pk}"
+
+    def apply_review_decision(self, decision: str, rejection_reason: str):
+        now = timezone.now()
+
+        if self.status == self.Status.FINAL_INVALID:
+            raise ValidationError({"complaint": "Complaint is already terminally invalidated."})
+
+        if decision == ComplaintReview.Decision.APPROVED:
+            self.status = self.Status.VALIDATED
+            if self.validated_at is None:
+                self.validated_at = now
+            self.rejection_reason = ""
+        else:
+            counter, _ = ComplaintValidationCounter.objects.get_or_create(complaint=self)
+            counter.invalid_attempt_count = min(counter.invalid_attempt_count + 1, 3)
+            counter.last_rejection_reason = rejection_reason
+            counter.save()
+            self.rejection_reason = rejection_reason
+            if counter.invalid_attempt_count >= 3:
+                self.status = self.Status.FINAL_INVALID
+                if self.invalidated_at is None:
+                    self.invalidated_at = now
+                if self.case.status != Case.Status.FINAL_INVALID:
+                    self.case.status = Case.Status.FINAL_INVALID
+                    self.case.save()
+            else:
+                self.status = self.Status.REJECTED
+
+        self.reviewed_at = now
+        self.save()
+
+
+class ComplaintValidationCounter(models.Model):
+    complaint = models.OneToOneField(
+        Complaint,
+        on_delete=models.CASCADE,
+        related_name="validation_counter",
+    )
+    invalid_attempt_count = models.PositiveSmallIntegerField(default=0)
+    last_rejection_reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(invalid_attempt_count__gte=0) & Q(invalid_attempt_count__lte=3),
+                name="cases_complaintcounter_attempt_count_between_0_3",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.complaint_id}:{self.invalid_attempt_count}"
+
+
+class ComplaintReview(models.Model):
+    class Decision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    complaint = models.ForeignKey(Complaint, on_delete=models.CASCADE, related_name="reviews")
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="complaint_reviews",
+    )
+    decision = models.CharField(max_length=20, choices=Decision.choices)
+    rejection_reason = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["complaint", "reviewed_at"]),
+            models.Index(fields=["decision"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(decision="rejected") | ~Q(rejection_reason=""),
+                name="cases_complaintreview_rejected_requires_reason",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.complaint_id}:{self.decision}"
+
+    def clean(self):
+        if self.decision == self.Decision.REJECTED and not self.rejection_reason.strip():
+            raise ValidationError({"rejection_reason": "Rejection reason is required for rejected reviews."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        is_create = self._state.adding
+        with transaction.atomic():
+            complaint = Complaint.objects.select_for_update().get(pk=self.complaint_id)
+            if is_create and complaint.status == Complaint.Status.FINAL_INVALID:
+                raise ValidationError({"complaint": "Complaint is already terminally invalidated."})
+            super().save(*args, **kwargs)
+            if is_create:
+                complaint.apply_review_decision(self.decision, self.rejection_reason)
 

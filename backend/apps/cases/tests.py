@@ -1,8 +1,9 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 
-from apps.cases.models import Case, CaseParticipant
+from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview
 
 
 class CaseModelTests(TestCase):
@@ -183,3 +184,108 @@ class CaseParticipantModelTests(TestCase):
                 full_name="Witness Duplicate",
                 national_id="9500000001",
             )
+
+
+class ComplaintIntakeModelTests(TestCase):
+    def setUp(self):
+        self.cadet = get_user_model().objects.create_user(
+            username="cadet10",
+            email="cadet10@example.com",
+            password="StrongPass123!",
+            phone="09120030001",
+            national_id="9300000001",
+            full_name="Cadet Ten",
+        )
+        self.complainant = get_user_model().objects.create_user(
+            username="complainant10",
+            email="complainant10@example.com",
+            password="StrongPass123!",
+            phone="09120030002",
+            national_id="9300000002",
+            full_name="Complainant Ten",
+        )
+        self.case = Case.objects.create(
+            title="Complaint intake case",
+            summary="Cadet validation flow",
+            level=Case.Level.LEVEL_2,
+            source_type=Case.SourceType.COMPLAINT,
+            created_by=self.cadet,
+        )
+        self.complaint = Complaint.objects.create(
+            case=self.case,
+            complainant=self.complainant,
+            description="A detailed complaint for validation.",
+        )
+
+    def test_rejected_review_requires_rejection_reason(self):
+        with self.assertRaises(ValidationError):
+            ComplaintReview.objects.create(
+                complaint=self.complaint,
+                reviewer=self.cadet,
+                decision=ComplaintReview.Decision.REJECTED,
+                rejection_reason="",
+            )
+
+    def test_rejected_reviews_increment_counter_and_finalize_on_third_attempt(self):
+        ComplaintReview.objects.create(
+            complaint=self.complaint,
+            reviewer=self.cadet,
+            decision=ComplaintReview.Decision.REJECTED,
+            rejection_reason="Missing key details.",
+        )
+        self.complaint.refresh_from_db()
+        self.assertEqual(self.complaint.status, Complaint.Status.REJECTED)
+        self.assertEqual(self.complaint.validation_counter.invalid_attempt_count, 1)
+        self.assertEqual(self.complaint.rejection_reason, "Missing key details.")
+
+        ComplaintReview.objects.create(
+            complaint=self.complaint,
+            reviewer=self.cadet,
+            decision=ComplaintReview.Decision.REJECTED,
+            rejection_reason="Insufficient supporting info.",
+        )
+        self.complaint.refresh_from_db()
+        self.assertEqual(self.complaint.status, Complaint.Status.REJECTED)
+        self.assertEqual(self.complaint.validation_counter.invalid_attempt_count, 2)
+
+        ComplaintReview.objects.create(
+            complaint=self.complaint,
+            reviewer=self.cadet,
+            decision=ComplaintReview.Decision.REJECTED,
+            rejection_reason="Third rejection.",
+        )
+        self.complaint.refresh_from_db()
+        self.case.refresh_from_db()
+        self.assertEqual(self.complaint.status, Complaint.Status.FINAL_INVALID)
+        self.assertIsNotNone(self.complaint.invalidated_at)
+        self.assertEqual(self.complaint.validation_counter.invalid_attempt_count, 3)
+        self.assertEqual(self.case.status, Case.Status.FINAL_INVALID)
+
+    def test_complaint_cannot_be_reviewed_after_terminal_invalidation(self):
+        for reason in ["First rejection", "Second rejection", "Third rejection"]:
+            ComplaintReview.objects.create(
+                complaint=self.complaint,
+                reviewer=self.cadet,
+                decision=ComplaintReview.Decision.REJECTED,
+                rejection_reason=reason,
+            )
+
+        with self.assertRaises(ValidationError):
+            ComplaintReview.objects.create(
+                complaint=self.complaint,
+                reviewer=self.cadet,
+                decision=ComplaintReview.Decision.APPROVED,
+            )
+
+    def test_approved_review_sets_validated_state(self):
+        ComplaintReview.objects.create(
+            complaint=self.complaint,
+            reviewer=self.cadet,
+            decision=ComplaintReview.Decision.APPROVED,
+        )
+        self.complaint.refresh_from_db()
+
+        self.assertEqual(self.complaint.status, Complaint.Status.VALIDATED)
+        self.assertIsNotNone(self.complaint.validated_at)
+        self.assertIsNotNone(self.complaint.reviewed_at)
+        self.assertEqual(self.complaint.rejection_reason, "")
