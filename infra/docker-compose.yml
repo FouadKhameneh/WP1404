@@ -1,0 +1,92 @@
+name: ${COMPOSE_PROJECT_NAME}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/backend.Dockerfile
+    restart: unless-stopped
+    working_dir: /app/backend
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    command:
+      - sh
+      - -c
+      - ${BACKEND_START_CMD}
+    volumes:
+      - ../backend:/app/backend
+    ports:
+      - "${BACKEND_PORT}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: infra/frontend.Dockerfile
+    restart: unless-stopped
+    working_dir: /app/frontend
+    env_file:
+      - .env
+    command:
+      - sh
+      - -c
+      - ${FRONTEND_START_CMD}
+    volumes:
+      - ../frontend:/app/frontend
+      - frontend_node_modules:/app/frontend/node_modules
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    depends_on:
+      backend:
+        condition: service_started
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/backend.Dockerfile
+    restart: unless-stopped
+    profiles:
+      - worker
+    working_dir: /app/backend
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    command:
+      - sh
+      - -c
+      - ${WORKER_START_CMD}
+    volumes:
+      - ../backend:/app/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  frontend_node_modules:
