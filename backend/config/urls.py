@@ -1,0 +1,17 @@
+from django.contrib import admin
+from django.urls import include, path
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("api/v1/identity/", include("apps.identity.urls")),
+    path("api/v1/access/", include("apps.access.urls")),
+    path("api/v1/cases/", include("apps.cases.urls")),
+    path("api/v1/evidence/", include("apps.evidence.urls")),
+    path("api/v1/investigation/", include("apps.investigation.urls")),
+    path("api/v1/judiciary/", include("apps.judiciary.urls")),
+    path("api/v1/wanted/", include("apps.wanted.urls")),
+    path("api/v1/rewards/", include("apps.rewards.urls")),
+    path("api/v1/payments/", include("apps.payments.urls")),
+    path("api/v1/reports/", include("apps.reports.urls")),
+    path("api/v1/notifications/", include("apps.notifications.urls")),
+]
