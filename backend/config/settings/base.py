@@ -1,20 +1,29 @@
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 
-def get_bool(name: str, default: bool) -> bool:
+def env_bool(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def get_csv(name: str, default: str) -> list[str]:
-    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+def env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return int(value)
+
+
+def env_list(name: str, default: str = "") -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-development-key")
-DEBUG = get_bool("DJANGO_DEBUG", True)
-ALLOWED_HOSTS = get_csv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+DEBUG = env_bool("DJANGO_DEBUG", False)
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -23,7 +32,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "rest_framework",
+    "drf_spectacular",
     "apps.identity.apps.IdentityConfig",
     "apps.access.apps.AccessConfig",
     "apps.cases.apps.CasesConfig",
@@ -39,6 +50,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -93,14 +105,20 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+LANGUAGE_CODE = os.getenv("DJANGO_LANGUAGE_CODE", "en-us")
+TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+rest_default_permission = os.getenv(
+    "REST_DEFAULT_PERMISSION_CLASS",
+    "rest_framework.permissions.IsAuthenticated",
+)
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -108,6 +126,57 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.BasicAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",
+        rest_default_permission,
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": env_int("API_PAGE_SIZE", 20),
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": os.getenv("OPENAPI_TITLE", "Police Digital Operations API"),
+    "DESCRIPTION": os.getenv(
+        "OPENAPI_DESCRIPTION",
+        "API documentation for the Police Digital Operations System.",
+    ),
+    "VERSION": os.getenv("OPENAPI_VERSION", "1.0.0"),
+    "SERVE_INCLUDE_SCHEMA": False,
+}
+
+CORS_ALLOW_ALL_ORIGINS = env_bool("CORS_ALLOW_ALL_ORIGINS", False)
+CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:3000")
+CORS_ALLOW_CREDENTIALS = env_bool("CORS_ALLOW_CREDENTIALS", True)
+
+log_level = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": log_level,
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": log_level,
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": log_level,
+            "propagate": False,
+        },
+    },
 }
