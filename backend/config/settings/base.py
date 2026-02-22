@@ -105,6 +105,8 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+AUTH_USER_MODEL = "identity.User"
+
 LANGUAGE_CODE = os.getenv("DJANGO_LANGUAGE_CODE", "en-us")
 TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
