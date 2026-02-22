@@ -6,17 +6,85 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasRBACPermissions
-from apps.cases.models import Complaint, ComplaintReview
+from apps.cases.models import Case, Complaint, ComplaintReview
 from apps.cases.serializers import (
     ComplaintResubmitSerializer,
     ComplaintReviewCreateSerializer,
     ComplaintReviewSerializer,
     ComplaintSerializer,
     ComplaintSubmitSerializer,
+    SceneCaseCreateSerializer,
+    SceneCaseSerializer,
 )
-from apps.cases.services import can_cadet_review_complaint, create_case_for_complaint_if_missing
+from apps.cases.services import (
+    can_cadet_review_complaint,
+    can_create_scene_case,
+    create_case_for_complaint_if_missing,
+    create_scene_case_with_witnesses,
+)
 from apps.identity.services import error_response, success_response
 from apps.notifications.services import log_timeline_event
+
+
+class SceneCaseCreateAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.scene_cases.create"]
+
+    def post(self, request):
+        allowed, message = can_create_scene_case(request.user)
+        if not allowed:
+            return error_response(
+                code="ROLE_POLICY_VIOLATION",
+                message=message,
+                details={},
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = SceneCaseCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            case, _ = create_scene_case_with_witnesses(
+                actor=request.user,
+                title=serializer.validated_data["title"],
+                summary=serializer.validated_data.get("summary", ""),
+                level=serializer.validated_data["level"],
+                priority=serializer.validated_data.get("priority", ""),
+                scene_occurred_at=serializer.validated_data["scene_occurred_at"],
+                witnesses=serializer.validated_data["witnesses"],
+            )
+        except ValidationError as exc:
+            details = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=details,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        case = Case.objects.select_related("created_by", "scene_report_detail").get(pk=case.pk)
+        witness_count = len(serializer.validated_data["witnesses"])
+        log_timeline_event(
+            event_type="cases.scene_case.created",
+            actor=request.user,
+            summary="Scene-based case created.",
+            target_type="cases.case",
+            target_id=str(case.id),
+            case_reference=case.case_number,
+            payload_summary={
+                "source_type": case.source_type,
+                "level": case.level,
+                "witness_count": witness_count,
+            },
+        )
+        return success_response(SceneCaseSerializer(case).data, status_code=status.HTTP_201_CREATED)
 
 
 class ComplaintSubmitAPIView(APIView):

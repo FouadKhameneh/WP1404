@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from apps.cases.models import Case, Complaint, ComplaintReview
+from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview, SceneCaseReport
 
 
 class ComplaintUserSerializer(serializers.ModelSerializer):
@@ -14,6 +14,104 @@ class ComplaintCaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Case
         fields = ["id", "case_number", "title", "level", "source_type", "status", "priority"]
+
+
+class SceneWitnessInputSerializer(serializers.Serializer):
+    full_name = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField()
+    national_id = serializers.CharField()
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_phone(self, value):
+        text = value.strip()
+        if not text:
+            raise serializers.ValidationError("This field may not be blank.")
+        return text
+
+    def validate_national_id(self, value):
+        text = value.strip()
+        if not text:
+            raise serializers.ValidationError("This field may not be blank.")
+        return text
+
+
+class SceneCaseCreateSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=200)
+    summary = serializers.CharField(required=False, allow_blank=True)
+    level = serializers.ChoiceField(choices=Case.Level.choices)
+    priority = serializers.ChoiceField(choices=Case.Priority.choices, required=False, allow_blank=True)
+    scene_occurred_at = serializers.DateTimeField()
+    witnesses = SceneWitnessInputSerializer(many=True, min_length=1)
+
+    def validate_title(self, value):
+        text = value.strip()
+        if not text:
+            raise serializers.ValidationError("This field may not be blank.")
+        return text
+
+    def validate_witnesses(self, value):
+        national_ids = set()
+        for witness in value:
+            national_id = witness["national_id"]
+            if national_id in national_ids:
+                raise serializers.ValidationError("Witness national_id values must be unique.")
+            national_ids.add(national_id)
+        return value
+
+
+class SceneCaseReportSerializer(serializers.ModelSerializer):
+    reported_by = ComplaintUserSerializer(read_only=True)
+    superior_approved_by = ComplaintUserSerializer(read_only=True)
+
+    class Meta:
+        model = SceneCaseReport
+        fields = [
+            "id",
+            "scene_occurred_at",
+            "reported_by",
+            "reported_at",
+            "superior_approval_required",
+            "superior_approved_by",
+            "superior_approved_at",
+        ]
+
+
+class SceneCaseWitnessSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaseParticipant
+        fields = ["id", "full_name", "phone", "national_id", "notes", "created_at"]
+
+
+class SceneCaseSerializer(serializers.ModelSerializer):
+    created_by = ComplaintUserSerializer(read_only=True)
+    scene_report_detail = SceneCaseReportSerializer(read_only=True)
+    witnesses = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Case
+        fields = [
+            "id",
+            "case_number",
+            "title",
+            "summary",
+            "level",
+            "source_type",
+            "status",
+            "priority",
+            "assigned_role_key",
+            "created_by",
+            "scene_report_detail",
+            "witnesses",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_witnesses(self, obj):
+        queryset = obj.participants.filter(
+            role_in_case=CaseParticipant.RoleInCase.WITNESS,
+            participant_kind=CaseParticipant.ParticipantKind.CIVILIAN,
+        ).order_by("id")
+        return SceneCaseWitnessSerializer(queryset, many=True).data
 
 
 class ComplaintSerializer(serializers.ModelSerializer):

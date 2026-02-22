@@ -218,6 +218,59 @@ class CaseParticipant(models.Model):
         return f"{self.case.case_number}:{self.role_in_case}"
 
 
+class SceneCaseReport(models.Model):
+    case = models.OneToOneField(
+        Case,
+        on_delete=models.CASCADE,
+        related_name="scene_report_detail",
+    )
+    reported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scene_cases_reported",
+    )
+    scene_occurred_at = models.DateTimeField()
+    reported_at = models.DateTimeField(auto_now_add=True)
+    superior_approval_required = models.BooleanField(default=True)
+    superior_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scene_case_approvals",
+    )
+    superior_approved_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["scene_occurred_at"]),
+            models.Index(fields=["reported_by"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(superior_approved_by__isnull=True, superior_approved_at__isnull=True)
+                    | Q(superior_approved_by__isnull=False, superior_approved_at__isnull=False)
+                ),
+                name="cases_scenecasereport_approval_actor_time_consistent",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.case.case_number}:{self.scene_occurred_at.isoformat()}"
+
+    def clean(self):
+        if self.case_id and self.case.source_type != Case.SourceType.SCENE_REPORT:
+            raise ValidationError({"case": "Scene report can only be attached to scene-based cases."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
 class Complaint(models.Model):
     class Status(models.TextChoices):
         SUBMITTED = "submitted", "Submitted"

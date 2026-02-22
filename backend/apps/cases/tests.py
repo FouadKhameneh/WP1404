@@ -7,7 +7,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from apps.access.models import Permission, Role, RolePermission, UserRoleAssignment
-from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview
+from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview, SceneCaseReport
 
 
 class CaseModelTests(TestCase):
@@ -501,3 +501,208 @@ class ComplaintIntakeApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(response.data["success"])
         self.assertEqual(response.data["error"]["code"], "ROLE_POLICY_VIOLATION")
+
+
+class SceneBasedCaseApiTests(APITestCase):
+    def setUp(self):
+        self.admin_user = get_user_model().objects.create_superuser(
+            username="admin_scene01",
+            email="admin_scene01@example.com",
+            password="StrongPass123!",
+            phone="09120050001",
+            national_id="9500000001",
+            full_name="Admin Scene One",
+        )
+        self.officer_user = get_user_model().objects.create_user(
+            username="officer_scene01",
+            email="officer_scene01@example.com",
+            password="StrongPass123!",
+            phone="09120050002",
+            national_id="9500000002",
+            full_name="Officer Scene One",
+        )
+        self.sergeant_user = get_user_model().objects.create_user(
+            username="sergeant_scene01",
+            email="sergeant_scene01@example.com",
+            password="StrongPass123!",
+            phone="09120050003",
+            national_id="9500000003",
+            full_name="Sergeant Scene One",
+        )
+        self.cadet_user = get_user_model().objects.create_user(
+            username="cadet_scene01",
+            email="cadet_scene01@example.com",
+            password="StrongPass123!",
+            phone="09120050004",
+            national_id="9500000004",
+            full_name="Cadet Scene One",
+        )
+        self.base_user = get_user_model().objects.create_user(
+            username="base_scene01",
+            email="base_scene01@example.com",
+            password="StrongPass123!",
+            phone="09120050005",
+            national_id="9500000005",
+            full_name="Base Scene One",
+        )
+
+        self.permission_scene_create = Permission.objects.create(
+            code="cases.scene_cases.create",
+            name="Create Scene Case",
+            resource="cases.scene_cases",
+            action="create",
+        )
+
+        self.role_officer = Role.objects.create(key="police_officer", name="Police Officer")
+        self.role_sergeant = Role.objects.create(key="sergeant", name="Sergeant Scene")
+        self.role_cadet = Role.objects.create(key="cadet", name="Cadet Scene")
+        self.role_base = Role.objects.create(key="base_user", name="Base User Scene")
+
+        RolePermission.objects.create(role=self.role_officer, permission=self.permission_scene_create)
+        RolePermission.objects.create(role=self.role_sergeant, permission=self.permission_scene_create)
+        RolePermission.objects.create(role=self.role_cadet, permission=self.permission_scene_create)
+        RolePermission.objects.create(role=self.role_base, permission=self.permission_scene_create)
+
+        UserRoleAssignment.objects.create(user=self.officer_user, role=self.role_officer, assigned_by=self.admin_user)
+        UserRoleAssignment.objects.create(
+            user=self.sergeant_user,
+            role=self.role_sergeant,
+            assigned_by=self.admin_user,
+        )
+        UserRoleAssignment.objects.create(user=self.cadet_user, role=self.role_cadet, assigned_by=self.admin_user)
+        UserRoleAssignment.objects.create(user=self.base_user, role=self.role_base, assigned_by=self.admin_user)
+
+        self.officer_token = Token.objects.create(user=self.officer_user)
+        self.sergeant_token = Token.objects.create(user=self.sergeant_user)
+        self.cadet_token = Token.objects.create(user=self.cadet_user)
+        self.base_token = Token.objects.create(user=self.base_user)
+
+        self.scene_case_url = "/api/v1/cases/scene-cases/"
+
+    def test_officer_can_create_scene_case_with_datetime_and_witness_identity_data(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.officer_token.key}")
+        payload = {
+            "title": "Night market incident",
+            "summary": "Suspicious robbery attempt reported by patrol.",
+            "level": Case.Level.LEVEL_2,
+            "scene_occurred_at": "2026-02-22T20:00:00Z",
+            "witnesses": [
+                {
+                    "full_name": "Witness Alpha",
+                    "phone": "09125550001",
+                    "national_id": "9811111111",
+                },
+                {
+                    "full_name": "Witness Beta",
+                    "phone": "09125550002",
+                    "national_id": "9822222222",
+                },
+            ],
+        }
+
+        response = self.client.post(self.scene_case_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["source_type"], Case.SourceType.SCENE_REPORT)
+        self.assertEqual(response.data["data"]["status"], Case.Status.UNDER_REVIEW)
+        self.assertEqual(response.data["data"]["assigned_role_key"], "sergeant")
+        self.assertEqual(len(response.data["data"]["witnesses"]), 2)
+        case = Case.objects.get(id=response.data["data"]["id"])
+        self.assertEqual(case.created_by_id, self.officer_user.id)
+        scene_report = SceneCaseReport.objects.get(case=case)
+        self.assertEqual(scene_report.reported_by_id, self.officer_user.id)
+        witness_count = CaseParticipant.objects.filter(
+            case=case,
+            role_in_case=CaseParticipant.RoleInCase.WITNESS,
+            participant_kind=CaseParticipant.ParticipantKind.CIVILIAN,
+        ).count()
+        self.assertEqual(witness_count, 2)
+
+    def test_sergeant_scene_case_is_assigned_to_captain_as_superior(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.sergeant_token.key}")
+        payload = {
+            "title": "Warehouse alert",
+            "summary": "Potential organized crime movement.",
+            "level": Case.Level.LEVEL_1,
+            "scene_occurred_at": "2026-02-22T22:00:00Z",
+            "witnesses": [
+                {
+                    "full_name": "Witness Gamma",
+                    "phone": "09125550003",
+                    "national_id": "9833333333",
+                }
+            ],
+        }
+
+        response = self.client.post(self.scene_case_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["assigned_role_key"], "captain")
+
+    def test_cadet_cannot_create_scene_case_even_with_permission(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.cadet_token.key}")
+        payload = {
+            "title": "Cadet attempt",
+            "summary": "Should be blocked.",
+            "level": Case.Level.LEVEL_3,
+            "scene_occurred_at": "2026-02-22T11:00:00Z",
+            "witnesses": [
+                {
+                    "full_name": "Witness Delta",
+                    "phone": "09125550004",
+                    "national_id": "9844444444",
+                }
+            ],
+        }
+
+        response = self.client.post(self.scene_case_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["error"]["code"], "ROLE_POLICY_VIOLATION")
+
+    def test_non_police_role_cannot_create_scene_case(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.base_token.key}")
+        payload = {
+            "title": "Base user attempt",
+            "summary": "Should be blocked.",
+            "level": Case.Level.LEVEL_3,
+            "scene_occurred_at": "2026-02-22T10:00:00Z",
+            "witnesses": [
+                {
+                    "full_name": "Witness Epsilon",
+                    "phone": "09125550005",
+                    "national_id": "9855555555",
+                }
+            ],
+        }
+
+        response = self.client.post(self.scene_case_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["error"]["code"], "ROLE_POLICY_VIOLATION")
+
+    def test_scene_case_requires_witness_identity_data(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.officer_token.key}")
+        payload = {
+            "title": "Invalid witness payload",
+            "summary": "Missing witness national id should fail.",
+            "level": Case.Level.LEVEL_3,
+            "scene_occurred_at": "2026-02-22T10:30:00Z",
+            "witnesses": [
+                {
+                    "full_name": "Witness Zeta",
+                    "phone": "09125550006",
+                    "national_id": "",
+                }
+            ],
+        }
+
+        response = self.client.post(self.scene_case_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
