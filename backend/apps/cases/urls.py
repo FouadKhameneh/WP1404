@@ -4,11 +4,17 @@ from apps.cases.views import (
     ComplaintCadetReviewAPIView,
     ComplaintResubmitAPIView,
     ComplaintSubmitAPIView,
+    SceneCaseApproveAPIView,
     SceneCaseCreateAPIView,
 )
 
 urlpatterns = [
     path("scene-cases/", SceneCaseCreateAPIView.as_view(), name="cases-scene-case-create"),
+    path(
+        "scene-cases/<int:case_id>/approve/",
+        SceneCaseApproveAPIView.as_view(),
+        name="cases-scene-case-approve",
+    ),
     path("complaints/", ComplaintSubmitAPIView.as_view(), name="cases-complaint-submit"),
     path(
         "complaints/<int:complaint_id>/review/",

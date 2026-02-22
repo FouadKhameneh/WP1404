@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.authentication import TokenAuthentication
@@ -18,7 +19,9 @@ from apps.cases.serializers import (
 )
 from apps.cases.services import (
     can_cadet_review_complaint,
+    can_approve_scene_case,
     can_create_scene_case,
+    approve_scene_case,
     create_case_for_complaint_if_missing,
     create_scene_case_with_witnesses,
 )
@@ -60,8 +63,11 @@ class SceneCaseCreateAPIView(APIView):
                 scene_occurred_at=serializer.validated_data["scene_occurred_at"],
                 witnesses=serializer.validated_data["witnesses"],
             )
-        except ValidationError as exc:
-            details = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
+        except (ValidationError, IntegrityError) as exc:
+            if isinstance(exc, ValidationError):
+                details = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
+            else:
+                details = {"non_field_errors": ["Scene case payload violates data integrity rules."]}
             return error_response(
                 code="VALIDATION_ERROR",
                 message="Request validation failed.",
@@ -85,6 +91,59 @@ class SceneCaseCreateAPIView(APIView):
             },
         )
         return success_response(SceneCaseSerializer(case).data, status_code=status.HTTP_201_CREATED)
+
+
+class SceneCaseApproveAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.scene_cases.approve"]
+
+    def post(self, request, case_id):
+        case = get_object_or_404(
+            Case.objects.select_related("scene_report_detail", "created_by"),
+            id=case_id,
+            source_type=Case.SourceType.SCENE_REPORT,
+        )
+        scene_report = case.scene_report_detail
+        allowed, message = can_approve_scene_case(request.user, case, scene_report)
+        if not allowed:
+            code = "WORKFLOW_POLICY_VIOLATION"
+            status_code = status.HTTP_409_CONFLICT
+            if message in {
+                "Cadet role cannot approve scene-based cases.",
+                "Only police roles can approve scene-based cases.",
+                "Only the assigned superior role can approve this scene case.",
+                "Reporter cannot approve their own scene case.",
+            }:
+                code = "ROLE_POLICY_VIOLATION"
+                status_code = status.HTTP_403_FORBIDDEN
+            return error_response(
+                code=code,
+                message=message,
+                details={},
+                status_code=status_code,
+            )
+
+        approved_case, message = approve_scene_case(actor=request.user, case=case)
+        if approved_case is None:
+            return error_response(
+                code="WORKFLOW_POLICY_VIOLATION",
+                message=message or "Scene case cannot be approved in current state.",
+                details={},
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        approved_case = Case.objects.select_related("created_by", "scene_report_detail").get(pk=approved_case.pk)
+        log_timeline_event(
+            event_type="cases.scene_case.approved",
+            actor=request.user,
+            summary="Scene-based case approved by superior.",
+            target_type="cases.case",
+            target_id=str(approved_case.id),
+            case_reference=approved_case.case_number,
+            payload_summary={"status": approved_case.status},
+        )
+        return success_response(SceneCaseSerializer(approved_case).data, status_code=status.HTTP_200_OK)
 
 
 class ComplaintSubmitAPIView(APIView):

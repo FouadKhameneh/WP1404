@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils import timezone
 
 from apps.access.services import get_user_role_keys, user_has_any_role_key
 from apps.cases.models import Case, CaseParticipant, Complaint, SceneCaseReport
@@ -158,3 +159,44 @@ def create_scene_case_with_witnesses(
             )
 
         return case, scene_report
+
+
+def can_approve_scene_case(user, case: Case, scene_report: SceneCaseReport):
+    if case.source_type != Case.SourceType.SCENE_REPORT:
+        return False, "Only scene-based cases can be approved in this flow."
+    if scene_report.superior_approved_by_id is not None:
+        return False, "Scene case is already approved by a superior."
+    if scene_report.reported_by_id == user.id:
+        return False, "Reporter cannot approve their own scene case."
+
+    role_keys = get_user_role_keys(user)
+    if ROLE_KEY_CADET in role_keys:
+        return False, "Cadet role cannot approve scene-based cases."
+    if not role_keys.intersection(POLICE_ROLE_KEYS):
+        return False, "Only police roles can approve scene-based cases."
+
+    expected_superior = (case.assigned_role_key or "").strip().lower()
+    if not expected_superior:
+        return False, "Case does not have a superior role assignment."
+    if expected_superior not in role_keys and "chief" not in role_keys:
+        return False, "Only the assigned superior role can approve this scene case."
+
+    return True, None
+
+
+def approve_scene_case(*, actor, case: Case):
+    with transaction.atomic():
+        locked_case = Case.objects.select_for_update().select_related("scene_report_detail").get(pk=case.pk)
+        scene_report = locked_case.scene_report_detail
+        allowed, message = can_approve_scene_case(actor, locked_case, scene_report)
+        if not allowed:
+            return None, message
+
+        approved_at = timezone.now()
+        scene_report.superior_approved_by = actor
+        scene_report.superior_approved_at = approved_at
+        scene_report.save(update_fields=["superior_approved_by", "superior_approved_at", "updated_at"])
+
+        locked_case.status = Case.Status.ACTIVE_INVESTIGATION
+        locked_case.save()
+        return locked_case, None

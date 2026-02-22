@@ -552,6 +552,12 @@ class SceneBasedCaseApiTests(APITestCase):
             resource="cases.scene_cases",
             action="create",
         )
+        self.permission_scene_approve = Permission.objects.create(
+            code="cases.scene_cases.approve",
+            name="Approve Scene Case",
+            resource="cases.scene_cases",
+            action="approve",
+        )
 
         self.role_officer = Role.objects.create(key="police_officer", name="Police Officer")
         self.role_sergeant = Role.objects.create(key="sergeant", name="Sergeant Scene")
@@ -562,6 +568,9 @@ class SceneBasedCaseApiTests(APITestCase):
         RolePermission.objects.create(role=self.role_sergeant, permission=self.permission_scene_create)
         RolePermission.objects.create(role=self.role_cadet, permission=self.permission_scene_create)
         RolePermission.objects.create(role=self.role_base, permission=self.permission_scene_create)
+        RolePermission.objects.create(role=self.role_sergeant, permission=self.permission_scene_approve)
+        RolePermission.objects.create(role=self.role_cadet, permission=self.permission_scene_approve)
+        RolePermission.objects.create(role=self.role_base, permission=self.permission_scene_approve)
 
         UserRoleAssignment.objects.create(user=self.officer_user, role=self.role_officer, assigned_by=self.admin_user)
         UserRoleAssignment.objects.create(
@@ -578,6 +587,25 @@ class SceneBasedCaseApiTests(APITestCase):
         self.base_token = Token.objects.create(user=self.base_user)
 
         self.scene_case_url = "/api/v1/cases/scene-cases/"
+
+    def _create_scene_case_by_officer(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.officer_token.key}")
+        payload = {
+            "title": "Create for approval flow",
+            "summary": "Scene case for approval tests.",
+            "level": Case.Level.LEVEL_2,
+            "scene_occurred_at": "2026-02-22T20:15:00Z",
+            "witnesses": [
+                {
+                    "full_name": "Witness Approval",
+                    "phone": "09125550011",
+                    "national_id": "9877777777",
+                }
+            ],
+        }
+        response = self.client.post(self.scene_case_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return response.data["data"]["id"]
 
     def test_officer_can_create_scene_case_with_datetime_and_witness_identity_data(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.officer_token.key}")
@@ -706,3 +734,93 @@ class SceneBasedCaseApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(response.data["success"])
         self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
+
+    def test_scene_case_requires_witness_full_name(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.officer_token.key}")
+        payload = {
+            "title": "Invalid witness name payload",
+            "summary": "Missing witness full name should fail.",
+            "level": Case.Level.LEVEL_3,
+            "scene_occurred_at": "2026-02-22T10:45:00Z",
+            "witnesses": [
+                {
+                    "full_name": "",
+                    "phone": "09125550007",
+                    "national_id": "9866666666",
+                }
+            ],
+        }
+
+        response = self.client.post(self.scene_case_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
+
+    def test_assigned_superior_can_approve_scene_case(self):
+        case_id = self._create_scene_case_by_officer()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.sergeant_token.key}")
+
+        response = self.client.post(
+            f"/api/v1/cases/scene-cases/{case_id}/approve/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["status"], Case.Status.ACTIVE_INVESTIGATION)
+        case = Case.objects.get(id=case_id)
+        self.assertEqual(case.status, Case.Status.ACTIVE_INVESTIGATION)
+        scene_report = SceneCaseReport.objects.get(case=case)
+        self.assertEqual(scene_report.superior_approved_by_id, self.sergeant_user.id)
+        self.assertIsNotNone(scene_report.superior_approved_at)
+
+    def test_reporter_cannot_approve_own_scene_case(self):
+        RolePermission.objects.create(role=self.role_officer, permission=self.permission_scene_approve)
+        case_id = self._create_scene_case_by_officer()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.officer_token.key}")
+
+        response = self.client.post(
+            f"/api/v1/cases/scene-cases/{case_id}/approve/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["error"]["code"], "ROLE_POLICY_VIOLATION")
+
+    def test_non_assigned_role_cannot_approve_scene_case(self):
+        case_id = self._create_scene_case_by_officer()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.base_token.key}")
+
+        response = self.client.post(
+            f"/api/v1/cases/scene-cases/{case_id}/approve/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["error"]["code"], "ROLE_POLICY_VIOLATION")
+
+    def test_scene_case_cannot_be_approved_twice(self):
+        case_id = self._create_scene_case_by_officer()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.sergeant_token.key}")
+
+        first_response = self.client.post(
+            f"/api/v1/cases/scene-cases/{case_id}/approve/",
+            {},
+            format="json",
+        )
+        second_response = self.client.post(
+            f"/api/v1/cases/scene-cases/{case_id}/approve/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_409_CONFLICT)
+        self.assertFalse(second_response.data["success"])
+        self.assertEqual(second_response.data["error"]["code"], "WORKFLOW_POLICY_VIOLATION")

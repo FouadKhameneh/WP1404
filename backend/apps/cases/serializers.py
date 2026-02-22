@@ -17,10 +17,16 @@ class ComplaintCaseSerializer(serializers.ModelSerializer):
 
 
 class SceneWitnessInputSerializer(serializers.Serializer):
-    full_name = serializers.CharField(required=False, allow_blank=True)
+    full_name = serializers.CharField()
     phone = serializers.CharField()
     national_id = serializers.CharField()
     notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_full_name(self, value):
+        text = value.strip()
+        if not text:
+            raise serializers.ValidationError("This field may not be blank.")
+        return text
 
     def validate_phone(self, value):
         text = value.strip()
