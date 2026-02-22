@@ -2,7 +2,8 @@ from django.urls import path
 
 from apps.access.views import (
     CurrentAuthorizationAPIView,
-    PermissionListAPIView,
+    PermissionDetailAPIView,
+    PermissionListCreateAPIView,
     RoleDetailAPIView,
     RoleListCreateAPIView,
     UserRoleAssignmentDeleteAPIView,
@@ -10,7 +11,8 @@ from apps.access.views import (
 )
 
 urlpatterns = [
-    path("permissions/", PermissionListAPIView.as_view(), name="access-permission-list"),
+    path("permissions/", PermissionListCreateAPIView.as_view(), name="access-permission-list-create"),
+    path("permissions/<int:permission_id>/", PermissionDetailAPIView.as_view(), name="access-permission-detail"),
     path("roles/", RoleListCreateAPIView.as_view(), name="access-role-list-create"),
     path("roles/<int:role_id>/", RoleDetailAPIView.as_view(), name="access-role-detail"),
     path(

@@ -1,1 +1,96 @@
 
+from django.shortcuts import get_object_or_404
+from rest_framework import status
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+
+from apps.access.permissions import HasRBACPermissions
+from apps.identity.services import error_response, success_response
+from apps.investigation.models import ReasoningApproval, ReasoningSubmission
+from apps.investigation.serializers import (
+    ReasoningApprovalCreateSerializer,
+    ReasoningApprovalSerializer,
+    ReasoningSubmissionCreateSerializer,
+    ReasoningSubmissionSerializer,
+)
+from apps.investigation.services import can_approve_reasoning, can_submit_reasoning
+
+
+class ReasoningSubmissionListCreateAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    permission_codes_by_method = {
+        "GET": ["investigation.reasoning.view"],
+        "POST": ["investigation.reasoning.submit"],
+    }
+
+    def get(self, request):
+        queryset = ReasoningSubmission.objects.select_related("submitted_by").order_by("-created_at")
+        serializer = ReasoningSubmissionSerializer(queryset, many=True)
+        return success_response({"results": serializer.data}, status_code=status.HTTP_200_OK)
+
+    def post(self, request):
+        allowed, message = can_submit_reasoning(request.user)
+        if not allowed:
+            return error_response(
+                code="ROLE_POLICY_VIOLATION",
+                message=message,
+                details={},
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = ReasoningSubmissionCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        reasoning = serializer.save(submitted_by=request.user)
+        response_serializer = ReasoningSubmissionSerializer(reasoning)
+        return success_response(response_serializer.data, status_code=status.HTTP_201_CREATED)
+
+
+class ReasoningApprovalCreateAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["investigation.reasoning.approve"]
+
+    def post(self, request, reasoning_id):
+        reasoning = get_object_or_404(ReasoningSubmission.objects.select_related("submitted_by"), id=reasoning_id)
+        allowed, message = can_approve_reasoning(request.user, reasoning)
+        if not allowed:
+            return error_response(
+                code="WORKFLOW_POLICY_VIOLATION",
+                message=message,
+                details={},
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = ReasoningApprovalCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        approval = ReasoningApproval.objects.create(
+            reasoning=reasoning,
+            decided_by=request.user,
+            decision=serializer.validated_data["decision"],
+            justification=serializer.validated_data.get("justification", ""),
+        )
+
+        if approval.decision == ReasoningApproval.Decision.APPROVED:
+            reasoning.status = ReasoningSubmission.Status.APPROVED
+        else:
+            reasoning.status = ReasoningSubmission.Status.REJECTED
+        reasoning.save(update_fields=["status", "updated_at"])
+
+        response_serializer = ReasoningApprovalSerializer(approval)
+        return success_response(response_serializer.data, status_code=status.HTTP_200_OK)

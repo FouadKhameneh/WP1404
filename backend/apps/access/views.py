@@ -1,13 +1,11 @@
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group, Permission
-from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.views import APIView
 
-from apps.access.models import UserRoleAssignment
+from apps.access.models import Permission, Role, UserRoleAssignment
 from apps.access.serializers import (
     PermissionSerializer,
     RoleSerializer,
@@ -18,18 +16,56 @@ from apps.access.serializers import (
 from apps.identity.services import error_response, success_response
 
 
-class PermissionListAPIView(APIView):
+class PermissionListCreateAPIView(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        permissions = Permission.objects.select_related("content_type").order_by(
-            "content_type__app_label",
-            "content_type__model",
-            "codename",
-        )
+        permissions = Permission.objects.order_by("resource", "action", "code")
         serializer = PermissionSerializer(permissions, many=True)
         return success_response({"results": serializer.data}, status_code=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = PermissionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        permission = serializer.save()
+        response_serializer = PermissionSerializer(permission)
+        return success_response(response_serializer.data, status_code=status.HTTP_201_CREATED)
+
+
+class PermissionDetailAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, permission_id):
+        permission = get_object_or_404(Permission, id=permission_id)
+        serializer = PermissionSerializer(permission)
+        return success_response(serializer.data, status_code=status.HTTP_200_OK)
+
+    def patch(self, request, permission_id):
+        permission = get_object_or_404(Permission, id=permission_id)
+        serializer = PermissionSerializer(permission, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        updated_permission = serializer.save()
+        response_serializer = PermissionSerializer(updated_permission)
+        return success_response(response_serializer.data, status_code=status.HTTP_200_OK)
+
+    def delete(self, request, permission_id):
+        permission = get_object_or_404(Permission, id=permission_id)
+        permission.delete()
+        return success_response({"message": "Permission deleted successfully."}, status_code=status.HTTP_200_OK)
 
 
 class RoleListCreateAPIView(APIView):
@@ -37,7 +73,7 @@ class RoleListCreateAPIView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        roles = Group.objects.prefetch_related("permissions").order_by("name")
+        roles = Role.objects.order_by("name")
         serializer = RoleSerializer(roles, many=True)
         return success_response({"results": serializer.data}, status_code=status.HTTP_200_OK)
 
@@ -60,12 +96,12 @@ class RoleDetailAPIView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request, role_id):
-        role = get_object_or_404(Group.objects.prefetch_related("permissions"), id=role_id)
+        role = get_object_or_404(Role, id=role_id)
         serializer = RoleSerializer(role)
         return success_response(serializer.data, status_code=status.HTTP_200_OK)
 
     def patch(self, request, role_id):
-        role = get_object_or_404(Group.objects.prefetch_related("permissions"), id=role_id)
+        role = get_object_or_404(Role, id=role_id)
         serializer = RoleSerializer(role, data=request.data, partial=True)
         if not serializer.is_valid():
             return error_response(
@@ -79,7 +115,7 @@ class RoleDetailAPIView(APIView):
         return success_response(response_serializer.data, status_code=status.HTTP_200_OK)
 
     def delete(self, request, role_id):
-        role = get_object_or_404(Group, id=role_id)
+        role = get_object_or_404(Role, id=role_id)
         role.delete()
         return success_response({"message": "Role deleted successfully."}, status_code=status.HTTP_200_OK)
 
@@ -93,7 +129,6 @@ class UserRoleAssignmentListCreateAPIView(APIView):
         assignments = (
             UserRoleAssignment.objects.filter(user=user)
             .select_related("assigned_by", "role")
-            .prefetch_related("role__permissions")
             .order_by("assigned_at")
         )
         serializer = UserRoleAssignmentSerializer(assignments, many=True)
@@ -127,7 +162,6 @@ class UserRoleAssignmentListCreateAPIView(APIView):
                 status_code=status.HTTP_409_CONFLICT,
             )
 
-        user.groups.add(role)
         response_serializer = UserRoleAssignmentSerializer(assignment)
         return success_response(response_serializer.data, status_code=status.HTTP_201_CREATED)
 
@@ -138,10 +172,9 @@ class UserRoleAssignmentDeleteAPIView(APIView):
 
     def delete(self, request, user_id, role_id):
         user = get_object_or_404(get_user_model(), id=user_id)
-        role = get_object_or_404(Group, id=role_id)
+        role = get_object_or_404(Role, id=role_id)
         assignment = get_object_or_404(UserRoleAssignment, user=user, role=role)
         assignment.delete()
-        user.groups.remove(role)
         return success_response(
             {"message": "Role assignment removed successfully."},
             status_code=status.HTTP_200_OK,
@@ -153,14 +186,12 @@ class CurrentAuthorizationAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        roles = request.user.groups.prefetch_related("permissions").all().order_by("name")
+        assignments = UserRoleAssignment.objects.filter(user=request.user).select_related("role")
+        roles = Role.objects.filter(id__in=assignments.values_list("role_id", flat=True)).order_by("name")
         role_data = RoleSerializer(roles, many=True).data
-        permissions = (
-            Permission.objects.filter(Q(group__user=request.user) | Q(user=request.user))
-            .select_related("content_type")
-            .distinct()
-            .order_by("content_type__app_label", "content_type__model", "codename")
-        )
+        permissions = Permission.objects.filter(
+            permission_roles__role_id__in=assignments.values_list("role_id", flat=True)
+        ).distinct().order_by("resource", "action", "code")
         permission_data = PermissionSerializer(permissions, many=True).data
         return success_response(
             {
