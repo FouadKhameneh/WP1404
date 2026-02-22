@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 
 from apps.identity.serializers import LoginSerializer, RegisterSerializer, UserAuthSerializer
 from apps.identity.services import error_response, find_user_by_identifier, success_response
+from apps.notifications.services import log_timeline_event
 
 
 class RegisterAPIView(APIView):
@@ -24,6 +25,14 @@ class RegisterAPIView(APIView):
         user = serializer.save()
         Token.objects.filter(user=user).delete()
         token = Token.objects.create(user=user)
+        log_timeline_event(
+            event_type="identity.user.registered",
+            actor=user,
+            summary="User registered.",
+            target_type="identity.user",
+            target_id=str(user.id),
+            payload_summary={"username": user.username, "email": user.email},
+        )
 
         return success_response(
             {
@@ -70,6 +79,14 @@ class LoginAPIView(APIView):
 
         Token.objects.filter(user=user).delete()
         token = Token.objects.create(user=user)
+        log_timeline_event(
+            event_type="identity.user.logged_in",
+            actor=user,
+            summary="User logged in.",
+            target_type="identity.user",
+            target_id=str(user.id),
+            payload_summary={"username": user.username},
+        )
 
         return success_response(
             {
@@ -87,6 +104,14 @@ class LogoutAPIView(APIView):
 
     def post(self, request):
         Token.objects.filter(user=request.user).delete()
+        log_timeline_event(
+            event_type="identity.user.logged_out",
+            actor=request.user,
+            summary="User logged out.",
+            target_type="identity.user",
+            target_id=str(request.user.id),
+            payload_summary={"username": request.user.username},
+        )
         return success_response({"message": "Logged out successfully."}, status_code=status.HTTP_200_OK)
 
 

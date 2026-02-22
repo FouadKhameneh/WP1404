@@ -15,6 +15,7 @@ from apps.investigation.serializers import (
     ReasoningSubmissionSerializer,
 )
 from apps.investigation.services import can_approve_reasoning, can_submit_reasoning
+from apps.notifications.services import log_timeline_event
 
 
 class ReasoningSubmissionListCreateAPIView(APIView):
@@ -51,6 +52,15 @@ class ReasoningSubmissionListCreateAPIView(APIView):
 
         reasoning = serializer.save(submitted_by=request.user)
         response_serializer = ReasoningSubmissionSerializer(reasoning)
+        log_timeline_event(
+            event_type="investigation.reasoning.submitted",
+            actor=request.user,
+            summary="Detective reasoning submitted.",
+            target_type="investigation.reasoning",
+            target_id=str(reasoning.id),
+            case_reference=reasoning.case_reference,
+            payload_summary={"title": reasoning.title, "status": reasoning.status},
+        )
         return success_response(response_serializer.data, status_code=status.HTTP_201_CREATED)
 
 
@@ -91,6 +101,20 @@ class ReasoningApprovalCreateAPIView(APIView):
         else:
             reasoning.status = ReasoningSubmission.Status.REJECTED
         reasoning.save(update_fields=["status", "updated_at"])
+        timeline_event_type = "investigation.reasoning.approved"
+        timeline_summary = "Detective reasoning approved by sergeant."
+        if approval.decision == ReasoningApproval.Decision.REJECTED:
+            timeline_event_type = "investigation.reasoning.rejected"
+            timeline_summary = "Detective reasoning rejected by sergeant."
+        log_timeline_event(
+            event_type=timeline_event_type,
+            actor=request.user,
+            summary=timeline_summary,
+            target_type="investigation.reasoning",
+            target_id=str(reasoning.id),
+            case_reference=reasoning.case_reference,
+            payload_summary={"decision": approval.decision, "status": reasoning.status},
+        )
 
         response_serializer = ReasoningApprovalSerializer(approval)
         return success_response(response_serializer.data, status_code=status.HTTP_200_OK)

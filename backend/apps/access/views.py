@@ -14,6 +14,7 @@ from apps.access.serializers import (
     UserSummarySerializer,
 )
 from apps.identity.services import error_response, success_response
+from apps.notifications.services import log_timeline_event
 
 
 class PermissionListCreateAPIView(APIView):
@@ -36,6 +37,18 @@ class PermissionListCreateAPIView(APIView):
             )
         permission = serializer.save()
         response_serializer = PermissionSerializer(permission)
+        log_timeline_event(
+            event_type="access.permission.created",
+            actor=request.user,
+            summary="Permission created.",
+            target_type="access.permission",
+            target_id=str(permission.id),
+            payload_summary={
+                "code": permission.code,
+                "resource": permission.resource,
+                "action": permission.action,
+            },
+        )
         return success_response(response_serializer.data, status_code=status.HTTP_201_CREATED)
 
 
@@ -60,11 +73,38 @@ class PermissionDetailAPIView(APIView):
             )
         updated_permission = serializer.save()
         response_serializer = PermissionSerializer(updated_permission)
+        log_timeline_event(
+            event_type="access.permission.updated",
+            actor=request.user,
+            summary="Permission updated.",
+            target_type="access.permission",
+            target_id=str(updated_permission.id),
+            payload_summary={
+                "code": updated_permission.code,
+                "resource": updated_permission.resource,
+                "action": updated_permission.action,
+            },
+        )
         return success_response(response_serializer.data, status_code=status.HTTP_200_OK)
 
     def delete(self, request, permission_id):
         permission = get_object_or_404(Permission, id=permission_id)
+        code = permission.code
+        resource = permission.resource
+        action = permission.action
         permission.delete()
+        log_timeline_event(
+            event_type="access.permission.deleted",
+            actor=request.user,
+            summary="Permission deleted.",
+            target_type="access.permission",
+            target_id=str(permission_id),
+            payload_summary={
+                "code": code,
+                "resource": resource,
+                "action": action,
+            },
+        )
         return success_response({"message": "Permission deleted successfully."}, status_code=status.HTTP_200_OK)
 
 
@@ -88,6 +128,14 @@ class RoleListCreateAPIView(APIView):
             )
         role = serializer.save()
         response_serializer = RoleSerializer(role)
+        log_timeline_event(
+            event_type="access.role.created",
+            actor=request.user,
+            summary="Role created.",
+            target_type="access.role",
+            target_id=str(role.id),
+            payload_summary={"name": role.name, "key": role.key},
+        )
         return success_response(response_serializer.data, status_code=status.HTTP_201_CREATED)
 
 
@@ -112,11 +160,29 @@ class RoleDetailAPIView(APIView):
             )
         updated_role = serializer.save()
         response_serializer = RoleSerializer(updated_role)
+        log_timeline_event(
+            event_type="access.role.updated",
+            actor=request.user,
+            summary="Role updated.",
+            target_type="access.role",
+            target_id=str(updated_role.id),
+            payload_summary={"name": updated_role.name, "key": updated_role.key},
+        )
         return success_response(response_serializer.data, status_code=status.HTTP_200_OK)
 
     def delete(self, request, role_id):
         role = get_object_or_404(Role, id=role_id)
+        role_name = role.name
+        role_key = role.key
         role.delete()
+        log_timeline_event(
+            event_type="access.role.deleted",
+            actor=request.user,
+            summary="Role deleted.",
+            target_type="access.role",
+            target_id=str(role_id),
+            payload_summary={"name": role_name, "key": role_key},
+        )
         return success_response({"message": "Role deleted successfully."}, status_code=status.HTTP_200_OK)
 
 
@@ -163,6 +229,14 @@ class UserRoleAssignmentListCreateAPIView(APIView):
             )
 
         response_serializer = UserRoleAssignmentSerializer(assignment)
+        log_timeline_event(
+            event_type="access.user_role.assigned",
+            actor=request.user,
+            summary="Role assigned to user.",
+            target_type="access.user_role_assignment",
+            target_id=str(assignment.id),
+            payload_summary={"user_id": user.id, "role_id": role.id, "role_name": role.name},
+        )
         return success_response(response_serializer.data, status_code=status.HTTP_201_CREATED)
 
 
@@ -174,7 +248,16 @@ class UserRoleAssignmentDeleteAPIView(APIView):
         user = get_object_or_404(get_user_model(), id=user_id)
         role = get_object_or_404(Role, id=role_id)
         assignment = get_object_or_404(UserRoleAssignment, user=user, role=role)
+        assignment_id = assignment.id
         assignment.delete()
+        log_timeline_event(
+            event_type="access.user_role.removed",
+            actor=request.user,
+            summary="Role removed from user.",
+            target_type="access.user_role_assignment",
+            target_id=str(assignment_id),
+            payload_summary={"user_id": user.id, "role_id": role.id, "role_name": role.name},
+        )
         return success_response(
             {"message": "Role assignment removed successfully."},
             status_code=status.HTTP_200_OK,
