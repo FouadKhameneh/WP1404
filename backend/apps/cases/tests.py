@@ -2,7 +2,11 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from rest_framework import status
+from rest_framework.authtoken.models import Token
+from rest_framework.test import APITestCase
 
+from apps.access.models import Permission, Role, RolePermission, UserRoleAssignment
 from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview
 
 
@@ -289,3 +293,211 @@ class ComplaintIntakeModelTests(TestCase):
         self.assertIsNotNone(self.complaint.validated_at)
         self.assertIsNotNone(self.complaint.reviewed_at)
         self.assertEqual(self.complaint.rejection_reason, "")
+
+
+class ComplaintIntakeApiTests(APITestCase):
+    def setUp(self):
+        self.admin_user = get_user_model().objects.create_superuser(
+            username="admin_cases01",
+            email="admin_cases01@example.com",
+            password="StrongPass123!",
+            phone="09120040001",
+            national_id="9400000001",
+            full_name="Admin Cases One",
+        )
+        self.cadet_user = get_user_model().objects.create_user(
+            username="cadet_api01",
+            email="cadet_api01@example.com",
+            password="StrongPass123!",
+            phone="09120040002",
+            national_id="9400000002",
+            full_name="Cadet Api One",
+        )
+        self.complainant_user = get_user_model().objects.create_user(
+            username="complainant_api01",
+            email="complainant_api01@example.com",
+            password="StrongPass123!",
+            phone="09120040003",
+            national_id="9400000003",
+            full_name="Complainant Api One",
+        )
+        self.other_user = get_user_model().objects.create_user(
+            username="other_api01",
+            email="other_api01@example.com",
+            password="StrongPass123!",
+            phone="09120040004",
+            national_id="9400000004",
+            full_name="Other Api One",
+        )
+
+        self.permission_submit = Permission.objects.create(
+            code="cases.complaints.submit",
+            name="Submit Complaint",
+            resource="cases.complaints",
+            action="submit",
+        )
+        self.permission_review = Permission.objects.create(
+            code="cases.complaints.review",
+            name="Review Complaint",
+            resource="cases.complaints",
+            action="review",
+        )
+        self.permission_resubmit = Permission.objects.create(
+            code="cases.complaints.resubmit",
+            name="Resubmit Complaint",
+            resource="cases.complaints",
+            action="resubmit",
+        )
+
+        self.role_cadet = Role.objects.create(key="cadet", name="Cadet")
+        self.role_base_user = Role.objects.create(key="base_user", name="Base User")
+
+        RolePermission.objects.create(role=self.role_cadet, permission=self.permission_review)
+        RolePermission.objects.create(role=self.role_base_user, permission=self.permission_submit)
+        RolePermission.objects.create(role=self.role_base_user, permission=self.permission_resubmit)
+
+        UserRoleAssignment.objects.create(user=self.cadet_user, role=self.role_cadet, assigned_by=self.admin_user)
+        UserRoleAssignment.objects.create(
+            user=self.complainant_user,
+            role=self.role_base_user,
+            assigned_by=self.admin_user,
+        )
+        UserRoleAssignment.objects.create(user=self.other_user, role=self.role_base_user, assigned_by=self.admin_user)
+
+        self.cadet_token = Token.objects.create(user=self.cadet_user)
+        self.complainant_token = Token.objects.create(user=self.complainant_user)
+        self.other_token = Token.objects.create(user=self.other_user)
+
+        self.submit_url = "/api/v1/cases/complaints/"
+
+    def test_submit_complaint_creates_submitted_record(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.complainant_token.key}")
+        payload = {"description": "Citizen complaint about suspicious activity."}
+
+        response = self.client.post(self.submit_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["status"], Complaint.Status.SUBMITTED)
+        self.assertIsNone(response.data["data"]["case"])
+
+    def test_cadet_approval_creates_case_for_valid_complaint(self):
+        complaint = Complaint.objects.create(
+            complainant=self.complainant_user,
+            description="Complaint that should become a case.",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.cadet_token.key}")
+
+        response = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/review/",
+            {"decision": ComplaintReview.Decision.APPROVED},
+            format="json",
+        )
+
+        complaint.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["complaint"]["status"], Complaint.Status.VALIDATED)
+        self.assertIsNotNone(complaint.case_id)
+        self.assertEqual(complaint.case.source_type, Case.SourceType.COMPLAINT)
+        self.assertEqual(complaint.case.assigned_role_key, "police_officer")
+
+    def test_reject_resubmit_and_terminal_invalidation_flow(self):
+        complaint = Complaint.objects.create(
+            complainant=self.complainant_user,
+            description="Complaint requiring multiple revisions.",
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.cadet_token.key}")
+        first_reject = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/review/",
+            {"decision": ComplaintReview.Decision.REJECTED, "rejection_reason": "Missing evidence."},
+            format="json",
+        )
+        self.assertEqual(first_reject.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_reject.data["data"]["complaint"]["status"], Complaint.Status.REJECTED)
+        self.assertEqual(first_reject.data["data"]["complaint"]["invalid_attempt_count"], 1)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.complainant_token.key}")
+        first_resubmit = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/resubmit/",
+            {"description": "Updated complaint details after first rejection."},
+            format="json",
+        )
+        self.assertEqual(first_resubmit.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_resubmit.data["data"]["status"], Complaint.Status.SUBMITTED)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.cadet_token.key}")
+        second_reject = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/review/",
+            {"decision": ComplaintReview.Decision.REJECTED, "rejection_reason": "Still incomplete."},
+            format="json",
+        )
+        self.assertEqual(second_reject.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_reject.data["data"]["complaint"]["status"], Complaint.Status.REJECTED)
+        self.assertEqual(second_reject.data["data"]["complaint"]["invalid_attempt_count"], 2)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.complainant_token.key}")
+        second_resubmit = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/resubmit/",
+            {"description": "Updated complaint details after second rejection."},
+            format="json",
+        )
+        self.assertEqual(second_resubmit.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_resubmit.data["data"]["status"], Complaint.Status.SUBMITTED)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.cadet_token.key}")
+        third_reject = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/review/",
+            {"decision": ComplaintReview.Decision.REJECTED, "rejection_reason": "Third failed validation."},
+            format="json",
+        )
+        self.assertEqual(third_reject.status_code, status.HTTP_200_OK)
+        self.assertEqual(third_reject.data["data"]["complaint"]["status"], Complaint.Status.FINAL_INVALID)
+        self.assertEqual(third_reject.data["data"]["complaint"]["invalid_attempt_count"], 3)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.complainant_token.key}")
+        terminal_resubmit = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/resubmit/",
+            {"description": "Should fail after third rejection."},
+            format="json",
+        )
+        self.assertEqual(terminal_resubmit.status_code, status.HTTP_409_CONFLICT)
+        self.assertFalse(terminal_resubmit.data["success"])
+        self.assertEqual(terminal_resubmit.data["error"]["code"], "WORKFLOW_POLICY_VIOLATION")
+
+    def test_non_owner_cannot_resubmit_complaint(self):
+        complaint = Complaint.objects.create(
+            complainant=self.complainant_user,
+            description="Complaint owned by another user.",
+            status=Complaint.Status.REJECTED,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.other_token.key}")
+
+        response = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/resubmit/",
+            {"description": "Unauthorized resubmission attempt."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["error"]["code"], "FORBIDDEN")
+
+    def test_non_cadet_cannot_review_even_with_review_permission(self):
+        RolePermission.objects.create(role=self.role_base_user, permission=self.permission_review)
+        complaint = Complaint.objects.create(
+            complainant=self.complainant_user,
+            description="Complaint should require cadet role for review.",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.complainant_token.key}")
+
+        response = self.client.post(
+            f"/api/v1/cases/complaints/{complaint.id}/review/",
+            {"decision": ComplaintReview.Decision.APPROVED},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["error"]["code"], "ROLE_POLICY_VIOLATION")

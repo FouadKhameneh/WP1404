@@ -226,7 +226,13 @@ class Complaint(models.Model):
         REJECTED = "rejected", "Rejected"
         FINAL_INVALID = "final_invalid", "Final Invalid"
 
-    case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name="complaints")
+    case = models.ForeignKey(
+        Case,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="complaints",
+    )
     complainant = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -257,10 +263,29 @@ class Complaint(models.Model):
                 condition=~Q(status="validated") | Q(validated_at__isnull=False),
                 name="cases_complaint_validated_requires_validated_at",
             ),
+            models.CheckConstraint(
+                condition=~Q(status="validated") | Q(case__isnull=False),
+                name="cases_complaint_validated_requires_case",
+            ),
         ]
 
     def __str__(self):
-        return f"{self.case.case_number}:{self.pk}"
+        case_part = self.case.case_number if self.case_id else "NO-CASE"
+        return f"{case_part}:{self.pk}"
+
+    def resubmit(self, description: str):
+        if self.status != self.Status.REJECTED:
+            raise ValidationError({"complaint": "Only rejected complaints can be re-submitted."})
+
+        counter = ComplaintValidationCounter.objects.filter(complaint=self).first()
+        if counter and counter.invalid_attempt_count >= 3:
+            raise ValidationError({"complaint": "Complaint is already terminally invalidated."})
+
+        self.description = description
+        self.status = self.Status.SUBMITTED
+        self.rejection_reason = ""
+        self.reviewed_at = None
+        self.save(update_fields=["description", "status", "rejection_reason", "reviewed_at", "updated_at"])
 
     def apply_review_decision(self, decision: str, rejection_reason: str):
         now = timezone.now()
@@ -283,7 +308,7 @@ class Complaint(models.Model):
                 self.status = self.Status.FINAL_INVALID
                 if self.invalidated_at is None:
                     self.invalidated_at = now
-                if self.case.status != Case.Status.FINAL_INVALID:
+                if self.case_id and self.case.status != Case.Status.FINAL_INVALID:
                     self.case.status = Case.Status.FINAL_INVALID
                     self.case.save()
             else:
