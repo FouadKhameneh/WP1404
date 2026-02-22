@@ -1,7 +1,8 @@
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import TestCase
 
-from apps.cases.models import Case
+from apps.cases.models import Case, CaseParticipant
 
 
 class CaseModelTests(TestCase):
@@ -99,3 +100,86 @@ class CaseModelTests(TestCase):
         case.assigned_role_key = ""
         case.save()
         self.assertIsNone(case.assigned_at)
+
+
+class CaseParticipantModelTests(TestCase):
+    def setUp(self):
+        self.creator = get_user_model().objects.create_user(
+            username="sergeant10",
+            email="sergeant10@example.com",
+            password="StrongPass123!",
+            phone="09120020001",
+            national_id="9200000001",
+            full_name="Sergeant Ten",
+        )
+        self.judge_user = get_user_model().objects.create_user(
+            username="judge10",
+            email="judge10@example.com",
+            password="StrongPass123!",
+            phone="09120020002",
+            national_id="9200000002",
+            full_name="Judge Ten",
+        )
+        self.case = Case.objects.create(
+            title="Participant case",
+            summary="Participant tracking",
+            level=Case.Level.LEVEL_1,
+            source_type=Case.SourceType.COMPLAINT,
+            created_by=self.creator,
+        )
+
+    def test_personnel_participant_links_to_user(self):
+        participant = CaseParticipant.objects.create(
+            case=self.case,
+            participant_kind=CaseParticipant.ParticipantKind.PERSONNEL,
+            role_in_case=CaseParticipant.RoleInCase.JUDGE,
+            user=self.judge_user,
+            added_by=self.creator,
+        )
+
+        self.assertEqual(participant.user_id, self.judge_user.id)
+        self.assertEqual(participant.role_in_case, CaseParticipant.RoleInCase.JUDGE)
+        self.assertEqual(participant.participant_kind, CaseParticipant.ParticipantKind.PERSONNEL)
+
+    def test_participant_requires_user_or_full_name(self):
+        with self.assertRaises(IntegrityError):
+            CaseParticipant.objects.create(
+                case=self.case,
+                participant_kind=CaseParticipant.ParticipantKind.CIVILIAN,
+                role_in_case=CaseParticipant.RoleInCase.WITNESS,
+                national_id="9400000001",
+            )
+
+    def test_unique_case_role_user_constraint(self):
+        CaseParticipant.objects.create(
+            case=self.case,
+            participant_kind=CaseParticipant.ParticipantKind.PERSONNEL,
+            role_in_case=CaseParticipant.RoleInCase.DETECTIVE,
+            user=self.creator,
+        )
+
+        with self.assertRaises(IntegrityError):
+            CaseParticipant.objects.create(
+                case=self.case,
+                participant_kind=CaseParticipant.ParticipantKind.PERSONNEL,
+                role_in_case=CaseParticipant.RoleInCase.DETECTIVE,
+                user=self.creator,
+            )
+
+    def test_unique_case_role_national_id_constraint_for_external_participant(self):
+        CaseParticipant.objects.create(
+            case=self.case,
+            participant_kind=CaseParticipant.ParticipantKind.CIVILIAN,
+            role_in_case=CaseParticipant.RoleInCase.WITNESS,
+            full_name="Witness One",
+            national_id="9500000001",
+        )
+
+        with self.assertRaises(IntegrityError):
+            CaseParticipant.objects.create(
+                case=self.case,
+                participant_kind=CaseParticipant.ParticipantKind.CIVILIAN,
+                role_in_case=CaseParticipant.RoleInCase.WITNESS,
+                full_name="Witness Duplicate",
+                national_id="9500000001",
+            )

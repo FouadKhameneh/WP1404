@@ -145,3 +145,73 @@ class Case(models.Model):
 
         super().save(*args, **kwargs)
 
+
+class CaseParticipant(models.Model):
+    class ParticipantKind(models.TextChoices):
+        PERSONNEL = "personnel", "Personnel"
+        CIVILIAN = "civilian", "Civilian"
+
+    class RoleInCase(models.TextChoices):
+        COMPLAINANT = "complainant", "Complainant"
+        WITNESS = "witness", "Witness"
+        SUSPECT = "suspect", "Suspect"
+        JUDGE = "judge", "Judge"
+        CADET = "cadet", "Cadet"
+        POLICE_OFFICER = "police_officer", "Police Officer"
+        DETECTIVE = "detective", "Detective"
+        SERGEANT = "sergeant", "Sergeant"
+        CAPTAIN = "captain", "Captain"
+        CHIEF = "chief", "Chief"
+        CORONER = "coroner", "Coroner"
+        BASE_USER = "base_user", "Base User"
+
+    case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name="participants")
+    participant_kind = models.CharField(max_length=20, choices=ParticipantKind.choices)
+    role_in_case = models.CharField(max_length=30, choices=RoleInCase.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="case_participations",
+    )
+    full_name = models.CharField(max_length=255, blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    national_id = models.CharField(max_length=32, blank=True)
+    notes = models.TextField(blank=True)
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="case_participants_added",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["case", "role_in_case"]),
+            models.Index(fields=["participant_kind"]),
+            models.Index(fields=["user"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(user__isnull=False) | ~Q(full_name=""),
+                name="cases_caseparticipant_user_or_full_name",
+            ),
+            models.UniqueConstraint(
+                fields=["case", "role_in_case", "user"],
+                condition=Q(user__isnull=False),
+                name="cases_caseparticipant_unique_case_role_user",
+            ),
+            models.UniqueConstraint(
+                fields=["case", "role_in_case", "national_id"],
+                condition=Q(user__isnull=True) & ~Q(national_id=""),
+                name="cases_caseparticipant_unique_case_role_national_id",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.case.case_number}:{self.role_in_case}"
+
