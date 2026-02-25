@@ -24,6 +24,7 @@ from apps.evidence.serializers import (
 )
 from apps.evidence.services.media import generate_signed_token, verify_signed_token
 from apps.identity.services import error_response, success_response
+from apps.notifications.services import log_timeline_event
 
 
 class BiologicalEvidenceCoronerDecisionAPIView(APIView):
@@ -65,6 +66,20 @@ class BiologicalEvidenceCoronerDecisionAPIView(APIView):
         evidence.result_submitted_at = timezone.now()
         evidence.coroner_result = f"[{review.get_decision_display().upper()}] {follow_up_notes}".strip()
         evidence.save(update_fields=["coroner_status", "coroner", "result_submitted_at", "coroner_result", "updated_at"])
+
+        case_reference = evidence.case.case_number if evidence.case_id else ""
+        log_timeline_event(
+            event_type="evidence.biological_medical.reviewed",
+            actor=request.user,
+            summary=f"Biological/medical evidence reviewed: {review.get_decision_display()} — {evidence.title}",
+            target_type="evidence.evidence",
+            target_id=str(evidence.pk),
+            case_reference=case_reference,
+            payload_summary={
+                "decision": decision,
+                "evidence_id": evidence.id,
+            },
+        )
 
         return success_response(
             {"review": EvidenceReviewSerializer(review).data, "evidence_id": evidence.id},
