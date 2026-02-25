@@ -64,10 +64,30 @@ class ReasoningSubmissionListCreateAPIView(APIView):
         return success_response(response_serializer.data, status_code=status.HTTP_201_CREATED)
 
 
-class ReasoningApprovalCreateAPIView(APIView):
+class ReasoningSubmissionDetailAPIView(APIView):
+    """Retrieve a single reasoning submission (for sergeants/detectives to view detail)."""
+
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated, HasRBACPermissions]
-    required_permission_codes = ["investigation.reasoning.approve"]
+    permission_codes_by_method = {"GET": ["investigation.reasoning.view"]}
+
+    def get(self, request, reasoning_id):
+        reasoning = get_object_or_404(
+            ReasoningSubmission.objects.select_related(
+                "submitted_by", "approval", "approval__decided_by"
+            ),
+            id=reasoning_id,
+        )
+        serializer = ReasoningSubmissionSerializer(reasoning)
+        return success_response(serializer.data, status_code=status.HTTP_200_OK)
+
+
+class ReasoningApprovalCreateAPIView(APIView):
+    """Sergeant approves or rejects a detective's reasoning submission (with rationale)."""
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    permission_codes_by_method = {"POST": ["investigation.reasoning.approve"]}
 
     def post(self, request, reasoning_id):
         reasoning = get_object_or_404(ReasoningSubmission.objects.select_related("submitted_by"), id=reasoning_id)

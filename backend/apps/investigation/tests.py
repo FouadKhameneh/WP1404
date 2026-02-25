@@ -175,3 +175,62 @@ class InvestigationAuthorizationPolicyTests(APITestCase):
         self.assertFalse(response.data["success"])
         self.assertEqual(response.data["error"]["code"], "WORKFLOW_POLICY_VIOLATION")
         self.assertEqual(reasoning.status, ReasoningSubmission.Status.PENDING)
+
+    def test_sergeant_reject_requires_rationale(self):
+        reasoning = ReasoningSubmission.objects.create(
+            case_reference="CASE-1006",
+            title="Detective submission",
+            narrative="Pending detective reasoning",
+            submitted_by=self.detective_user,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.sergeant_token.key}")
+
+        response = self.client.post(
+            f"/api/v1/investigation/reasonings/{reasoning.id}/approve/",
+            {"decision": "rejected"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(response.data["success"])
+        self.assertIn("justification", response.data.get("error", {}).get("details", {}))
+        reasoning.refresh_from_db()
+        self.assertEqual(reasoning.status, ReasoningSubmission.Status.PENDING)
+
+    def test_sergeant_can_reject_with_rationale(self):
+        reasoning = ReasoningSubmission.objects.create(
+            case_reference="CASE-1007",
+            title="Detective submission",
+            narrative="Pending detective reasoning",
+            submitted_by=self.detective_user,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.sergeant_token.key}")
+
+        response = self.client.post(
+            f"/api/v1/investigation/reasonings/{reasoning.id}/approve/",
+            {"decision": "rejected", "justification": "Evidence does not support conclusion."},
+            format="json",
+        )
+
+        reasoning.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(reasoning.status, ReasoningSubmission.Status.REJECTED)
+        approval = ReasoningApproval.objects.get(reasoning=reasoning)
+        self.assertEqual(approval.justification, "Evidence does not support conclusion.")
+
+    def test_reasoning_detail_requires_view_permission(self):
+        reasoning = ReasoningSubmission.objects.create(
+            case_reference="CASE-1008",
+            title="Detective submission",
+            narrative="Pending",
+            submitted_by=self.detective_user,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.detective_token.key}")
+
+        response = self.client.get(f"/api/v1/investigation/reasonings/{reasoning.id}/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["id"], reasoning.id)
+        self.assertEqual(response.data["data"]["case_reference"], "CASE-1008")

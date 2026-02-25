@@ -27,7 +27,7 @@ class ReasoningApprovalSerializer(serializers.ModelSerializer):
 
 class ReasoningSubmissionSerializer(serializers.ModelSerializer):
     submitted_by = ReasoningUserSerializer(read_only=True)
-    approval = ReasoningApprovalSerializer(read_only=True)
+    approval = serializers.SerializerMethodField()
 
     class Meta:
         model = ReasoningSubmission
@@ -43,7 +43,28 @@ class ReasoningSubmissionSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def get_approval(self, obj):
+        try:
+            return ReasoningApprovalSerializer(obj.approval).data
+        except ReasoningApproval.DoesNotExist:
+            return None
+
 
 class ReasoningApprovalCreateSerializer(serializers.Serializer):
+    """Sergeant approve/reject with optional rationale (required when rejecting)."""
+
     decision = serializers.ChoiceField(choices=ReasoningApproval.Decision.choices)
-    justification = serializers.CharField(allow_blank=True, required=False)
+    justification = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        help_text="Rationale for the decision; required when rejecting.",
+    )
+
+    def validate(self, attrs):
+        if attrs.get("decision") == ReasoningApproval.Decision.REJECTED:
+            justification = (attrs.get("justification") or "").strip()
+            if not justification:
+                raise serializers.ValidationError(
+                    {"justification": "Rationale (justification) is required when rejecting."}
+                )
+        return attrs
