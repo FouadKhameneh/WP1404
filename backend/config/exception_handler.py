@@ -1,13 +1,29 @@
 from rest_framework.views import exception_handler
 
 
+def _normalize_error_details(details):
+    """Ensure details is a dict with string/list values for consistent API response format."""
+    if details is None:
+        return {}
+    if not isinstance(details, dict):
+        return {"non_field_errors": [str(details)] if isinstance(details, (list, tuple)) else [str(details)]}
+
+    normalized = {}
+    for key, value in details.items():
+        if isinstance(value, (list, tuple)):
+            normalized[key] = [str(item) for item in value]
+        else:
+            normalized[key] = [str(value)]
+    return normalized
+
+
 def standard_exception_handler(exc, context):
     response = exception_handler(exc, context)
     if response is None:
         return None
 
     status_code = response.status_code
-    details = response.data
+    details = _normalize_error_details(response.data)
 
     code = "ERROR"
     message = "Request failed."

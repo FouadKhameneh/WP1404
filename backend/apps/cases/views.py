@@ -36,7 +36,7 @@ from apps.cases.services import (
     create_scene_case_with_witnesses,
     transition_case_status,
 )
-from apps.identity.services import error_response, success_response
+from apps.identity.services import error_response, success_response, validation_error_to_details
 from apps.notifications.services import log_timeline_event
 
 
@@ -163,10 +163,11 @@ class SceneCaseCreateAPIView(APIView):
                 witnesses=serializer.validated_data["witnesses"],
             )
         except (ValidationError, IntegrityError) as exc:
-            if isinstance(exc, ValidationError):
-                details = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
-            else:
-                details = {"non_field_errors": ["Scene case payload violates data integrity rules."]}
+            details = (
+                validation_error_to_details(exc)
+                if isinstance(exc, ValidationError)
+                else {"non_field_errors": ["Scene case payload violates data integrity rules."]}
+            )
             return error_response(
                 code="VALIDATION_ERROR",
                 message="Request validation failed.",
@@ -323,11 +324,10 @@ class ComplaintCadetReviewAPIView(APIView):
                 rejection_reason=rejection_reason,
             )
         except ValidationError as exc:
-            details = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
             return error_response(
                 code="VALIDATION_ERROR",
                 message="Request validation failed.",
-                details=details,
+                details=validation_error_to_details(exc),
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -416,11 +416,10 @@ class ComplaintResubmitAPIView(APIView):
         try:
             complaint.resubmit(serializer.validated_data["description"])
         except ValidationError as exc:
-            details = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
             return error_response(
                 code="WORKFLOW_POLICY_VIOLATION",
                 message="Complaint cannot be re-submitted in current state.",
-                details=details,
+                details=validation_error_to_details(exc),
                 status_code=status.HTTP_409_CONFLICT,
             )
 
@@ -473,16 +472,24 @@ class CaseSuspectAddAPIView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        participant = CaseParticipant.objects.create(
-            case=case,
-            participant_kind=CaseParticipant.ParticipantKind.CIVILIAN,
-            role_in_case=CaseParticipant.RoleInCase.SUSPECT,
-            full_name=serializer.validated_data["full_name"],
-            phone=serializer.validated_data["phone"],
-            national_id=serializer.validated_data["national_id"],
-            notes=serializer.validated_data.get("notes", ""),
-            added_by=request.user,
-        )
+        try:
+            participant = CaseParticipant.objects.create(
+                case=case,
+                participant_kind=CaseParticipant.ParticipantKind.CIVILIAN,
+                role_in_case=CaseParticipant.RoleInCase.SUSPECT,
+                full_name=serializer.validated_data["full_name"],
+                phone=serializer.validated_data["phone"],
+                national_id=serializer.validated_data["national_id"],
+                notes=serializer.validated_data.get("notes", ""),
+                added_by=request.user,
+            )
+        except IntegrityError:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Suspect with this national_id may already exist for this case.",
+                details={"national_id": ["A participant with this national_id already exists in this case."]},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         log_timeline_event(
             event_type="cases.suspect.marked",

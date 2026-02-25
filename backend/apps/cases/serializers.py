@@ -1,8 +1,16 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview, SceneCaseReport
+from apps.cases.validators import (
+    validate_case_not_closed_or_invalid,
+    validate_national_id,
+    validate_non_blank,
+    validate_phone,
+    validate_rejection_requires_reason,
+)
 
 
 class ComplaintUserSerializer(serializers.ModelSerializer):
@@ -18,50 +26,47 @@ class ComplaintCaseSerializer(serializers.ModelSerializer):
 
 
 class SceneWitnessInputSerializer(serializers.Serializer):
-    full_name = serializers.CharField()
-    phone = serializers.CharField()
-    national_id = serializers.CharField()
-    notes = serializers.CharField(required=False, allow_blank=True)
+    full_name = serializers.CharField(max_length=255)
+    phone = serializers.CharField(max_length=20)
+    national_id = serializers.CharField(max_length=32)
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
     def validate_full_name(self, value):
-        text = value.strip()
-        if not text:
-            raise serializers.ValidationError("This field may not be blank.")
-        return text
+        validate_non_blank(value, "full_name")
+        return value.strip()
 
     def validate_phone(self, value):
-        text = value.strip()
-        if not text:
-            raise serializers.ValidationError("This field may not be blank.")
-        return text
+        return validate_phone(value)
 
     def validate_national_id(self, value):
-        text = value.strip()
-        if not text:
-            raise serializers.ValidationError("This field may not be blank.")
-        return text
+        return validate_national_id(value)
 
 
 class SceneCaseCreateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=200)
-    summary = serializers.CharField(required=False, allow_blank=True)
+    summary = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     level = serializers.ChoiceField(choices=Case.Level.choices)
     priority = serializers.ChoiceField(choices=Case.Priority.choices, required=False, allow_blank=True)
     scene_occurred_at = serializers.DateTimeField()
     witnesses = SceneWitnessInputSerializer(many=True, min_length=1)
 
     def validate_title(self, value):
-        text = value.strip()
-        if not text:
-            raise serializers.ValidationError("This field may not be blank.")
-        return text
+        validate_non_blank(value, "title")
+        return value.strip()
+
+    def validate_scene_occurred_at(self, value):
+        if value and value > timezone.now():
+            raise serializers.ValidationError("Scene occurred at cannot be in the future.")
+        return value
 
     def validate_witnesses(self, value):
         national_ids = set()
         for witness in value:
-            national_id = witness["national_id"]
+            national_id = witness.get("national_id", "")
             if national_id in national_ids:
-                raise serializers.ValidationError("Witness national_id values must be unique.")
+                raise serializers.ValidationError(
+                    {"witnesses": "Witness national_id values must be unique."}
+                )
             national_ids.add(national_id)
         return value
 
@@ -152,7 +157,7 @@ class ComplaintSerializer(serializers.ModelSerializer):
 
 
 class ComplaintSubmitSerializer(serializers.Serializer):
-    description = serializers.CharField()
+    description = serializers.CharField(max_length=5000)
     case_id = serializers.PrimaryKeyRelatedField(
         source="case",
         queryset=Case.objects.filter(source_type=Case.SourceType.COMPLAINT),
@@ -161,14 +166,11 @@ class ComplaintSubmitSerializer(serializers.Serializer):
     )
 
     def validate_description(self, value):
-        text = value.strip()
-        if not text:
-            raise serializers.ValidationError("This field may not be blank.")
-        return text
+        validate_non_blank(value, "description")
+        return value.strip()
 
     def validate_case(self, value):
-        if value and value.status in {Case.Status.CLOSED, Case.Status.FINAL_INVALID}:
-            raise serializers.ValidationError("Cannot attach complaint to a closed or invalidated case.")
+        validate_case_not_closed_or_invalid(value)
         return value
 
     def create(self, validated_data):
@@ -180,13 +182,13 @@ class ComplaintSubmitSerializer(serializers.Serializer):
 
 class ComplaintReviewCreateSerializer(serializers.Serializer):
     decision = serializers.ChoiceField(choices=ComplaintReview.Decision.choices)
-    rejection_reason = serializers.CharField(required=False, allow_blank=True)
+    rejection_reason = serializers.CharField(required=False, allow_blank=True, max_length=2000)
 
     def validate(self, attrs):
-        decision = attrs.get("decision")
-        rejection_reason = attrs.get("rejection_reason", "")
-        if decision == ComplaintReview.Decision.REJECTED and not rejection_reason.strip():
-            raise serializers.ValidationError({"rejection_reason": ["This field is required for rejection."]})
+        validate_rejection_requires_reason(
+            attrs.get("decision", ""),
+            attrs.get("rejection_reason", ""),
+        )
         return attrs
 
 
@@ -199,26 +201,28 @@ class ComplaintReviewSerializer(serializers.ModelSerializer):
 
 
 class ComplaintResubmitSerializer(serializers.Serializer):
-    description = serializers.CharField()
+    description = serializers.CharField(max_length=5000)
 
     def validate_description(self, value):
-        text = value.strip()
-        if not text:
-            raise serializers.ValidationError("This field may not be blank.")
-        return text
+        validate_non_blank(value, "description")
+        return value.strip()
 
 
 class SuspectAddSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=255)
     phone = serializers.CharField(max_length=20)
     national_id = serializers.CharField(max_length=32)
-    notes = serializers.CharField(required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
     def validate_full_name(self, value):
-        text = value.strip()
-        if not text:
-            raise serializers.ValidationError("This field may not be blank.")
-        return text
+        validate_non_blank(value, "full_name")
+        return value.strip()
+
+    def validate_phone(self, value):
+        return validate_phone(value)
+
+    def validate_national_id(self, value):
+        return validate_national_id(value)
 
 
 class CaseStatusTransitionSerializer(serializers.Serializer):

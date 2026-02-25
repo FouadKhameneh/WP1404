@@ -102,6 +102,12 @@ class Case(models.Model):
     def __str__(self):
         return self.case_number
 
+    def clean(self):
+        if self.status == self.Status.CLOSED and self.closed_at is None:
+            raise ValidationError(
+                {"closed_at": "closed_at is required when status is closed."}
+            )
+
     @classmethod
     def priority_for_level(cls, level: str):
         mapping = {
@@ -217,6 +223,12 @@ class CaseParticipant(models.Model):
     def __str__(self):
         return f"{self.case.case_number}:{self.role_in_case}"
 
+    def clean(self):
+        if not self.user_id and not (self.full_name or "").strip():
+            raise ValidationError(
+                {"full_name": "Either user or full_name must be provided."}
+            )
+
 
 class SceneCaseReport(models.Model):
     case = models.OneToOneField(
@@ -325,6 +337,15 @@ class Complaint(models.Model):
     def __str__(self):
         case_part = self.case.case_number if self.case_id else "NO-CASE"
         return f"{case_part}:{self.pk}"
+
+    def clean(self):
+        if self.status == self.Status.VALIDATED:
+            if self.validated_at is None:
+                raise ValidationError({"validated_at": "validated_at required when status is validated."})
+            if not self.case_id:
+                raise ValidationError({"case": "case is required when status is validated."})
+        if self.status == self.Status.FINAL_INVALID and self.invalidated_at is None:
+            raise ValidationError({"invalidated_at": "invalidated_at required when status is final_invalid."})
 
     def resubmit(self, description: str):
         if self.status != self.Status.REJECTED:
