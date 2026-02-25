@@ -170,6 +170,40 @@ class BiologicalMedicalEvidence(Evidence):
         return f"Biological/Medical: {self.title}"
 
 
+class EvidenceReview(models.Model):
+    """
+    Coroner review/decision for biological/medical evidence.
+    Tracks accept/reject and follow-up notes.
+    """
+
+    class Decision(models.TextChoices):
+        ACCEPT = "accept", "Accept"
+        REJECT = "reject", "Reject"
+
+    biological_medical_evidence = models.ForeignKey(
+        BiologicalMedicalEvidence,
+        on_delete=models.CASCADE,
+        related_name="reviews",
+    )
+    decision = models.CharField(max_length=10, choices=Decision.choices, db_index=True)
+    follow_up_notes = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="evidence_reviews",
+    )
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Evidence Review"
+        verbose_name_plural = "Evidence Reviews"
+        ordering = ["-reviewed_at"]
+
+    def __str__(self):
+        return f"{self.get_decision_display()}: {self.biological_medical_evidence.title}"
+
+
 class BiologicalMedicalMediaReference(models.Model):
     """
     Media reference (image/video) for biological/medical evidence.

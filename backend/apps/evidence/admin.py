@@ -4,6 +4,7 @@ from .models import (
     BiologicalMedicalEvidence,
     BiologicalMedicalMediaReference,
     Evidence,
+    EvidenceReview,
     IdentificationEvidence,
     OtherEvidence,
     VehicleEvidence,
@@ -50,7 +51,7 @@ class BiologicalMedicalEvidenceAdmin(admin.ModelAdmin):
     search_fields = ("title", "description", "coroner_result")
     raw_id_fields = ("registrar", "case", "coroner")
     date_hierarchy = "registered_at"
-    inlines = [BiologicalMedicalMediaReferenceInline]
+    inlines = [BiologicalMedicalMediaReferenceInline, EvidenceReviewInline]
 
 
 @admin.register(VehicleEvidence)
@@ -69,6 +70,21 @@ class IdentificationEvidenceAdmin(admin.ModelAdmin):
     search_fields = ("title", "description")
     raw_id_fields = ("registrar", "case")
     date_hierarchy = "registered_at"
+
+
+class EvidenceReviewInline(admin.TabularInline):
+    model = EvidenceReview
+    extra = 0
+    readonly_fields = ("reviewed_by", "reviewed_at")
+    fields = ("decision", "follow_up_notes", "reviewed_by", "reviewed_at")
+
+
+@admin.register(EvidenceReview)
+class EvidenceReviewAdmin(admin.ModelAdmin):
+    list_display = ("biological_medical_evidence", "decision", "reviewed_by", "reviewed_at")
+    list_filter = ("decision", "reviewed_at")
+    raw_id_fields = ("biological_medical_evidence", "reviewed_by")
+    date_hierarchy = "reviewed_at"
 
 
 @admin.register(OtherEvidence)
