@@ -824,3 +824,100 @@ class SceneBasedCaseApiTests(APITestCase):
         self.assertEqual(second_response.status_code, status.HTTP_409_CONFLICT)
         self.assertFalse(second_response.data["success"])
         self.assertEqual(second_response.data["error"]["code"], "WORKFLOW_POLICY_VIOLATION")
+
+
+class CaptainChiefReferralFlowTests(APITestCase):
+    """Task 34: Captain decision for normal cases; chief approval required for critical before referral."""
+
+    def setUp(self):
+        self.admin_user = get_user_model().objects.create_superuser(
+            username="admin_ref",
+            email="admin_ref@example.com",
+            password="StrongPass123!",
+            phone="09120005001",
+            national_id="5000000001",
+            full_name="Admin Ref",
+        )
+        self.captain_user = get_user_model().objects.create_user(
+            username="capt_ref",
+            email="capt_ref@example.com",
+            password="StrongPass123!",
+            phone="09120005002",
+            national_id="5000000002",
+            full_name="Captain Ref",
+        )
+        self.chief_user = get_user_model().objects.create_user(
+            username="chief_ref",
+            email="chief_ref@example.com",
+            password="StrongPass123!",
+            phone="09120005003",
+            national_id="5000000003",
+            full_name="Chief Ref",
+        )
+        self.captain_token = Token.objects.create(user=self.captain_user)
+        self.chief_token = Token.objects.create(user=self.chief_user)
+
+        perm, _ = Permission.objects.get_or_create(
+            code="cases.case.transition_status",
+            defaults={"name": "Transition status", "resource": "cases.case", "action": "transition_status"},
+        )
+        for key, name in [("captain", "Captain"), ("chief", "Chief")]:
+            role, _ = Role.objects.get_or_create(key=key, defaults={"name": name})
+            RolePermission.objects.get_or_create(role=role, permission=perm)
+        UserRoleAssignment.objects.create(user=self.captain_user, role=Role.objects.get(key="captain"), assigned_by=self.admin_user)
+        UserRoleAssignment.objects.create(user=self.chief_user, role=Role.objects.get(key="chief"), assigned_by=self.admin_user)
+
+        self.normal_case = Case.objects.create(
+            title="Normal case",
+            summary="Level 2",
+            level=Case.Level.LEVEL_2,
+            source_type=Case.SourceType.COMPLAINT,
+            status=Case.Status.SUSPECT_ASSESSMENT,
+            created_by=self.admin_user,
+        )
+        self.critical_case = Case.objects.create(
+            title="Critical case",
+            summary="Critical",
+            level=Case.Level.CRITICAL,
+            source_type=Case.SourceType.COMPLAINT,
+            status=Case.Status.SUSPECT_ASSESSMENT,
+            created_by=self.admin_user,
+        )
+        self.transition_url = "/api/v1/cases/{}/transition-status/"
+
+    def test_captain_can_refer_normal_case_to_judiciary(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.captain_token.key}")
+        response = self.client.post(
+            self.transition_url.format(self.normal_case.id),
+            {"new_status": Case.Status.REFERRAL_READY},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.normal_case.refresh_from_db()
+        self.assertEqual(self.normal_case.status, Case.Status.REFERRAL_READY)
+
+    def test_captain_cannot_refer_critical_case_chief_required(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.captain_token.key}")
+        response = self.client.post(
+            self.transition_url.format(self.critical_case.id),
+            {"new_status": Case.Status.REFERRAL_READY},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(response.data["success"])
+        self.assertIn("chief", (response.data.get("error") or {}).get("message", "").lower())
+        self.critical_case.refresh_from_db()
+        self.assertEqual(self.critical_case.status, Case.Status.SUSPECT_ASSESSMENT)
+
+    def test_chief_can_refer_critical_case(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.chief_token.key}")
+        response = self.client.post(
+            self.transition_url.format(self.critical_case.id),
+            {"new_status": Case.Status.REFERRAL_READY},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.critical_case.refresh_from_db()
+        self.assertEqual(self.critical_case.status, Case.Status.REFERRAL_READY)

@@ -284,8 +284,13 @@ def can_transition_case_status(user, case: Case, new_status: str):
 
     if new_status == Case.Status.SUSPECT_ASSESSMENT and not detective_or_sergeant:
         return False, "Only detective or sergeant can move case to suspect assessment."
-    if new_status == Case.Status.REFERRAL_READY and not captain_or_chief:
-        return False, "Only captain or chief can refer case to judiciary."
+    # Task 34: Captain decision for normal cases; critical cases require chief override/approval before referral.
+    if new_status == Case.Status.REFERRAL_READY:
+        if case.level == Case.Level.CRITICAL:
+            if "chief" not in role_keys:
+                return False, "Only chief can approve critical cases for judiciary referral."
+        elif not captain_or_chief:
+            return False, "Only captain or chief can refer case to judiciary."
     if new_status in (Case.Status.IN_TRIAL, Case.Status.CLOSED) and not judge_role:
         return False, "Only judge can set case to trial or verdict."
 
