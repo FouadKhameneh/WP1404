@@ -36,6 +36,8 @@ export default function DashboardLayout({
         <nav style={{ display: "flex", gap: "1rem" }}>
           <Link href="/dashboard">Dashboard</Link>
           <Link href="/dashboard/cases">Cases</Link>
+          <Link href="/dashboard/detective">Detective board</Link>
+          <Link href="/dashboard/evidence">Evidence</Link>
           <Link href="/dashboard/reports">Reports</Link>
           <Link href="/dashboard/wanted">Most Wanted</Link>
         </nav>
