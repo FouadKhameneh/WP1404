@@ -65,7 +65,7 @@ def get_homepage_stats():
         status__in=[Case.Status.CLOSED, Case.Status.FINAL_INVALID]
     ).count()
     closed = Case.objects.filter(status=Case.Status.CLOSED).count()
-    from django.contrib.auth import get_user_model()
+    from django.contrib.auth import get_user_model
     staff_count = get_user_model().objects.filter(is_active=True).count()
     return {
         "total_cases": case_counts["total"],

@@ -45,6 +45,13 @@ class BiologicalMedicalMediaReferenceInline(admin.TabularInline):
     fields = ("file", "media_type", "width", "height", "file_size", "mime_type", "caption")
 
 
+class EvidenceReviewInline(admin.TabularInline):
+    model = EvidenceReview
+    extra = 0
+    readonly_fields = ("reviewed_by", "reviewed_at")
+    fields = ("decision", "follow_up_notes", "reviewed_by", "reviewed_at")
+
+
 @admin.register(BiologicalMedicalEvidence)
 class BiologicalMedicalEvidenceAdmin(admin.ModelAdmin):
     list_display = ("title", "case", "registrar", "coroner_status", "result_submitted_at", "registered_at")
@@ -73,13 +80,6 @@ class IdentificationEvidenceAdmin(admin.ModelAdmin):
     date_hierarchy = "registered_at"
 
 
-class EvidenceReviewInline(admin.TabularInline):
-    model = EvidenceReview
-    extra = 0
-    readonly_fields = ("reviewed_by", "reviewed_at")
-    fields = ("decision", "follow_up_notes", "reviewed_by", "reviewed_at")
-
-
 @admin.register(EvidenceReview)
 class EvidenceReviewAdmin(admin.ModelAdmin):
     list_display = ("biological_medical_evidence", "decision", "reviewed_by", "reviewed_at")
@@ -91,9 +91,6 @@ class EvidenceLinkAdmin(admin.ModelAdmin):
     list_filter = ("created_at",)
     raw_id_fields = ("source", "target", "created_by")
     date_hierarchy = "created_at"
-    list_filter = ("decision", "reviewed_at")
-    raw_id_fields = ("biological_medical_evidence", "reviewed_by")
-    date_hierarchy = "reviewed_at"
 
 
 @admin.register(OtherEvidence)
