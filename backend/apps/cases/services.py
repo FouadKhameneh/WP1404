@@ -1,3 +1,11 @@
+"""
+Centralized case state machine.
+
+Flow: Submitted → UnderReview → ActiveInvestigation → SuspectAssessment → ReferralReady → InTrial → Closed
+
+Terminal states: Closed, FinalInvalid (reachable when complaint is terminally invalidated).
+"""
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -18,6 +26,53 @@ POLICE_ROLE_KEYS = {
     "captain",
     "chief",
 }
+
+# ---------------------------------------------------------------------------
+# Case state machine (central definition)
+# Flow: Submitted → UnderReview → ActiveInvestigation → SuspectAssessment →
+#       ReferralReady → InTrial → Closed
+# ---------------------------------------------------------------------------
+
+CASE_STATE_FLOW = (
+    Case.Status.SUBMITTED,
+    Case.Status.UNDER_REVIEW,
+    Case.Status.ACTIVE_INVESTIGATION,
+    Case.Status.SUSPECT_ASSESSMENT,
+    Case.Status.REFERRAL_READY,
+    Case.Status.IN_TRIAL,
+    Case.Status.CLOSED,
+)
+
+CASE_STATE_TRANSITIONS = {
+    Case.Status.SUBMITTED: {Case.Status.UNDER_REVIEW},
+    Case.Status.UNDER_REVIEW: {Case.Status.ACTIVE_INVESTIGATION, Case.Status.FINAL_INVALID},
+    Case.Status.ACTIVE_INVESTIGATION: {Case.Status.SUSPECT_ASSESSMENT},
+    Case.Status.SUSPECT_ASSESSMENT: {Case.Status.REFERRAL_READY},
+    Case.Status.REFERRAL_READY: {Case.Status.IN_TRIAL},
+    Case.Status.IN_TRIAL: {Case.Status.CLOSED},
+    Case.Status.CLOSED: set(),
+    Case.Status.FINAL_INVALID: set(),
+}
+
+CASE_TERMINAL_STATES = {Case.Status.CLOSED, Case.Status.FINAL_INVALID}
+
+CASE_INITIAL_STATES = {Case.Status.SUBMITTED, Case.Status.UNDER_REVIEW}
+
+
+def is_valid_case_status_transition(from_status: str, to_status: str) -> bool:
+    """Check if transition from from_status to to_status is valid per state machine."""
+    allowed = CASE_STATE_TRANSITIONS.get(from_status, set())
+    return to_status in allowed
+
+
+def get_allowed_next_statuses(from_status: str) -> frozenset:
+    """Return allowed target statuses for a given current status."""
+    return frozenset(CASE_STATE_TRANSITIONS.get(from_status, set()))
+
+
+def can_case_transition_to(case: Case, new_status: str) -> bool:
+    """Check if case can transition to new_status (state machine only, no role check)."""
+    return is_valid_case_status_transition(case.status, new_status)
 
 
 def can_cadet_review_complaint(user):
@@ -214,23 +269,18 @@ def can_mark_suspect(user):
 
 
 def can_transition_case_status(user, case: Case, new_status: str):
+    """Check if user can transition case to new_status. Uses centralized state machine."""
+    if not is_valid_case_status_transition(case.status, new_status):
+        allowed = get_allowed_next_statuses(case.status)
+        return False, (
+            f"Invalid transition: {case.status} → {new_status}. "
+            f"Allowed next: {sorted(allowed) or 'none (terminal state)'}."
+        )
+
     role_keys = get_user_role_keys(user)
     captain_or_chief = "captain" in role_keys or "chief" in role_keys
     judge_role = "judge" in role_keys
     detective_or_sergeant = "detective" in role_keys or "sergeant" in role_keys
-
-    allowed_transitions = {
-        Case.Status.SUSPECT_ASSESSMENT: (Case.Status.ACTIVE_INVESTIGATION,),
-        Case.Status.REFERRAL_READY: (Case.Status.SUSPECT_ASSESSMENT,),
-        Case.Status.IN_TRIAL: (Case.Status.REFERRAL_READY,),
-        Case.Status.CLOSED: (Case.Status.IN_TRIAL,),
-    }
-    if new_status not in allowed_transitions:
-        return False, f"Status '{new_status}' is not a valid transition target."
-
-    from_statuses = allowed_transitions[new_status]
-    if case.status not in from_statuses:
-        return False, f"Case status must be one of {list(from_statuses)} to transition to {new_status}."
 
     if new_status == Case.Status.SUSPECT_ASSESSMENT and not detective_or_sergeant:
         return False, "Only detective or sergeant can move case to suspect assessment."
