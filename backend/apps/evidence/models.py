@@ -246,3 +246,99 @@ class VehicleEvidence(Evidence):
 
     def __str__(self):
         return f"Vehicle: {self.model} ({self.plate or self.serial_number})"
+
+
+# --- Identification document evidence schema guardrails ---
+ID_DOC_MAX_KEYS = 50
+ID_DOC_MAX_KEY_LEN = 100
+ID_DOC_MAX_STRING_VALUE_LEN = 500
+ID_DOC_ALLOWED_VALUE_TYPES = (str, int, float, bool, type(None))
+ID_DOC_SCHEMA_ALLOWED_TYPES = {"string", "number", "integer", "boolean", "null"}
+
+
+def _validate_identification_attributes(value, schema=None):
+    """Validate key-value attributes against structure and optional schema."""
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise ValidationError("attributes must be a JSON object (key-value map).")
+
+    if len(value) > ID_DOC_MAX_KEYS:
+        raise ValidationError(f"attributes may have at most {ID_DOC_MAX_KEYS} keys.")
+
+    for k, v in value.items():
+        if not isinstance(k, str) or not k or not k.strip():
+            raise ValidationError("attribute keys must be non-empty strings.")
+        if len(k) > ID_DOC_MAX_KEY_LEN:
+            raise ValidationError(f"attribute key '{k}' exceeds max length {ID_DOC_MAX_KEY_LEN}.")
+
+        if not isinstance(v, ID_DOC_ALLOWED_VALUE_TYPES):
+            raise ValidationError(
+                f"attribute '{k}': value must be string, number, boolean, or null, got {type(v).__name__}."
+            )
+        if isinstance(v, str) and len(v) > ID_DOC_MAX_STRING_VALUE_LEN:
+            raise ValidationError(f"attribute '{k}': string value exceeds max length {ID_DOC_MAX_STRING_VALUE_LEN}.")
+
+    if schema and isinstance(schema, dict):
+        for k in value:
+            if k not in schema:
+                raise ValidationError(f"attribute '{k}' is not allowed by schema.")
+        for k, expected_type in schema.items():
+            if expected_type not in ID_DOC_SCHEMA_ALLOWED_TYPES:
+                raise ValidationError(f"schema: invalid type '{expected_type}' for key '{k}'.")
+            v = value.get(k)
+            if v is None:
+                if expected_type != "null":
+                    continue
+            elif expected_type == "string" and not isinstance(v, str):
+                raise ValidationError(f"attribute '{k}': expected string, got {type(v).__name__}.")
+            elif expected_type == "integer" and not isinstance(v, int):
+                raise ValidationError(f"attribute '{k}': expected integer, got {type(v).__name__}.")
+            elif expected_type == "number" and not isinstance(v, (int, float)):
+                raise ValidationError(f"attribute '{k}': expected number, got {type(v).__name__}.")
+            elif expected_type == "boolean" and not isinstance(v, bool):
+                raise ValidationError(f"attribute '{k}': expected boolean, got {type(v).__name__}.")
+            elif expected_type == "null" and v is not None:
+                raise ValidationError(f"attribute '{k}': expected null, got {type(v).__name__}.")
+
+
+class IdentificationEvidence(Evidence):
+    """
+    Identification document evidence with flexible key-value attributes.
+
+    Attributes stored as JSON. Optional attributes_schema enforces allowed keys and
+    value types (string, integer, number, boolean, null). Guardrails: max keys,
+    max key/value lengths.
+    """
+
+    attributes = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Key-value document attributes (e.g. full_name, national_id). Keys: strings; values: primitives.",
+    )
+    attributes_schema = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Optional schema: {key: type}. Types: string, integer, number, boolean, null. When set, validates attributes.",
+    )
+
+    class Meta:
+        verbose_name = "Identification Document Evidence"
+        verbose_name_plural = "Identification Document Evidence"
+
+    def save(self, *args, **kwargs):
+        self.evidence_type = Evidence.EvidenceType.IDENTIFICATION
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        _validate_identification_attributes(self.attributes, self.attributes_schema)
+        if self.attributes_schema is not None and isinstance(self.attributes_schema, dict):
+            for k, t in self.attributes_schema.items():
+                if t not in ID_DOC_SCHEMA_ALLOWED_TYPES:
+                    raise ValidationError(
+                        {"attributes_schema": f"Invalid type '{t}' for key '{k}'. Use: {', '.join(ID_DOC_SCHEMA_ALLOWED_TYPES)}"}
+                    )
+
+    def __str__(self):
+        return f"Identification: {self.title}"
