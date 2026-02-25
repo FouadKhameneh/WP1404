@@ -6,6 +6,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
+from apps.evidence.storage import get_evidence_media_storage
+
 
 def evidence_attachment_upload_path(instance, filename):
     """Store attachments under evidence/{witness_testimony_id}/{uuid}{ext}."""
@@ -107,7 +109,7 @@ class WitnessTestimonyAttachment(models.Model):
         on_delete=models.CASCADE,
         related_name="attachments",
     )
-    file = models.FileField(upload_to=evidence_attachment_upload_path)
+    file = models.FileField(upload_to=evidence_attachment_upload_path, storage=get_evidence_media_storage())
     media_type = models.CharField(max_length=10, choices=MediaType.choices, db_index=True)
     # Metadata: for video/audio
     duration_seconds = models.PositiveIntegerField(null=True, blank=True, help_text="Duration in seconds (video/audio)")
@@ -218,7 +220,7 @@ class BiologicalMedicalMediaReference(models.Model):
         on_delete=models.CASCADE,
         related_name="media_references",
     )
-    file = models.FileField(upload_to=biological_medical_media_upload_path)
+    file = models.FileField(upload_to=biological_medical_media_upload_path, storage=get_evidence_media_storage())
     media_type = models.CharField(max_length=10, choices=MediaType.choices, db_index=True, default=MediaType.IMAGE)
     width = models.PositiveIntegerField(null=True, blank=True)
     height = models.PositiveIntegerField(null=True, blank=True)

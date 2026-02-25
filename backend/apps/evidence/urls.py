@@ -3,6 +3,9 @@ from django.urls import path
 from apps.evidence.views import (
     BiologicalEvidenceCoronerDecisionAPIView,
     BiologicalEvidenceReviewListAPIView,
+    EvidenceMediaAccessByTokenAPIView,
+    EvidenceMediaSignedURLApiView,
+    EvidenceMediaStreamAPIView,
 )
 
 urlpatterns = [
@@ -15,6 +18,21 @@ urlpatterns = [
         "biological/<int:evidence_id>/coroner-decision/",
         BiologicalEvidenceCoronerDecisionAPIView.as_view(),
         name="evidence-biological-coroner-decision",
+    ),
+    path(
+        "media/<str:media_type>/<int:media_id>/",
+        EvidenceMediaStreamAPIView.as_view(),
+        name="evidence-media-stream",
+    ),
+    path(
+        "media/signed-url/",
+        EvidenceMediaSignedURLApiView.as_view(),
+        name="evidence-media-signed-url",
+    ),
+    path(
+        "media/access/",
+        EvidenceMediaAccessByTokenAPIView.as_view(),
+        name="evidence-media-access-by-token",
     ),
 ]
 

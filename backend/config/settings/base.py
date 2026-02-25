@@ -120,6 +120,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Evidence media: use custom storage (e.g. S3) by setting:
+# EVIDENCE_MEDIA_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+# Evidence media is served via protected API endpoints; avoid direct MEDIA_URL for evidence.
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 rest_default_permission = os.getenv(
