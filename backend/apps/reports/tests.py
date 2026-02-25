@@ -52,3 +52,18 @@ class ReportsAPITests(APITestCase):
         self.assertIn("approvals", r.data["data"])
         self.assertIn("wanted_rankings", r.data["data"])
         self.assertIn("reward_outcomes", r.data["data"])
+
+    def test_reports_homepage_forbidden_without_permission(self):
+        """API error handling: user without reports.view gets 403."""
+        no_perm_user = get_user_model().objects.create_user(
+            username="noperm_r",
+            email="noperm_r@example.com",
+            password="StrongPass123!",
+            phone="09120012003",
+            national_id="1200000003",
+            full_name="No Perm User",
+        )
+        Token.objects.create(user=no_perm_user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.get(user=no_perm_user).key}")
+        r = self.client.get("/api/v1/reports/homepage/", format="json")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)

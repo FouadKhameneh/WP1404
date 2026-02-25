@@ -149,3 +149,28 @@ class AuditTrailInfrastructureTests(APITestCase):
         )
         self.assertEqual(audit.actor_id, sergeant_user.id)
         self.assertEqual(audit.status_code, status.HTTP_200_OK)
+
+
+class ScheduledTasksTests(APITestCase):
+    """Tests for async/scheduler management commands (task 42)."""
+
+    def test_run_scheduled_tasks_dry_run_completes_without_error(self):
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command("run_scheduled_tasks", "--dry-run", stdout=out)
+        self.assertIn("All scheduled tasks completed", out.getvalue())
+
+    def test_expire_tokens_dry_run_completes_without_error(self):
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command("expire_tokens", "--dry-run", stdout=out)
+        self.assertIn("token", out.getvalue().lower())
+
+    def test_payment_reconcile_dry_run_completes_without_error(self):
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command("payment_reconcile", "--dry-run", stdout=out)
+        self.assertIn("transaction", out.getvalue().lower())
