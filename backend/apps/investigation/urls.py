@@ -1,6 +1,10 @@
 from django.urls import path
 
 from apps.investigation.views import (
+    ArrestOrderDetailAPIView,
+    ArrestOrderListCreateAPIView,
+    InterrogationOrderDetailAPIView,
+    InterrogationOrderListCreateAPIView,
     ReasoningApprovalCreateAPIView,
     ReasoningSubmissionDetailAPIView,
     ReasoningSubmissionListCreateAPIView,
@@ -35,6 +39,26 @@ urlpatterns = [
         "assessments/<int:assessment_id>/scores/",
         SuspectAssessmentScoreCreateAPIView.as_view(),
         name="investigation-suspect-assessment-score-create",
+    ),
+    path(
+        "arrest-orders/",
+        ArrestOrderListCreateAPIView.as_view(),
+        name="investigation-arrest-order-list-create",
+    ),
+    path(
+        "arrest-orders/<int:order_id>/",
+        ArrestOrderDetailAPIView.as_view(),
+        name="investigation-arrest-order-detail",
+    ),
+    path(
+        "interrogation-orders/",
+        InterrogationOrderListCreateAPIView.as_view(),
+        name="investigation-interrogation-order-list-create",
+    ),
+    path(
+        "interrogation-orders/<int:order_id>/",
+        InterrogationOrderDetailAPIView.as_view(),
+        name="investigation-interrogation-order-detail",
     ),
 ]
 

@@ -124,3 +124,90 @@ class SuspectAssessmentScoreEntry(models.Model):
     def __str__(self):
         return f"{self.assessment_id}:{self.role_key}={self.score}"
 
+
+class ArrestOrder(models.Model):
+    """Order issued by sergeant to arrest a suspect. Sergeant-only context."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        EXECUTED = "executed", "Executed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    case = models.ForeignKey(
+        "cases.Case",
+        on_delete=models.CASCADE,
+        related_name="arrest_orders",
+    )
+    participant = models.ForeignKey(
+        "cases.CaseParticipant",
+        on_delete=models.CASCADE,
+        related_name="arrest_orders",
+        help_text="Case participant with role suspect.",
+    )
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="arrest_orders_issued",
+    )
+    issued_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    class Meta:
+        indexes = [models.Index(fields=["case"]), models.Index(fields=["status"])]
+        ordering = ["-issued_at"]
+
+    def __str__(self):
+        return f"ArrestOrder case={self.case_id} participant={self.participant_id} ({self.status})"
+
+    def clean(self):
+        if self.participant_id and self.case_id:
+            if self.participant.case_id != self.case_id:
+                raise ValidationError({"participant": "Participant must belong to this case."})
+            if self.participant.role_in_case != "suspect":
+                raise ValidationError({"participant": "Participant must have role suspect."})
+
+
+class InterrogationOrder(models.Model):
+    """Order issued by sergeant for interrogation of a suspect. Sergeant-only context."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        COMPLETED = "completed", "Completed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    case = models.ForeignKey(
+        "cases.Case",
+        on_delete=models.CASCADE,
+        related_name="interrogation_orders",
+    )
+    participant = models.ForeignKey(
+        "cases.CaseParticipant",
+        on_delete=models.CASCADE,
+        related_name="interrogation_orders",
+        help_text="Case participant with role suspect.",
+    )
+    ordered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="interrogation_orders_issued",
+    )
+    ordered_at = models.DateTimeField(auto_now_add=True)
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    reason = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    class Meta:
+        indexes = [models.Index(fields=["case"]), models.Index(fields=["status"])]
+        ordering = ["-ordered_at"]
+
+    def __str__(self):
+        return f"InterrogationOrder case={self.case_id} participant={self.participant_id} ({self.status})"
+
+    def clean(self):
+        if self.participant_id and self.case_id:
+            if self.participant.case_id != self.case_id:
+                raise ValidationError({"participant": "Participant must belong to this case."})
+            if self.participant.role_in_case != "suspect":
+                raise ValidationError({"participant": "Participant must have role suspect."})
+

@@ -1,6 +1,6 @@
 
 from apps.access.services import user_has_any_role_key
-from apps.investigation.models import ReasoningSubmission, SuspectAssessment
+from apps.investigation.models import ArrestOrder, InterrogationOrder, ReasoningSubmission, SuspectAssessment
 
 ROLE_KEY_DETECTIVE = "detective"
 ROLE_KEY_SERGEANT = "sergeant"
@@ -20,6 +20,20 @@ def can_create_suspect_assessment(user):
     if user_has_any_role_key(user, {ROLE_KEY_DETECTIVE, ROLE_KEY_SERGEANT}):
         return True, None
     return False, "Only detective or sergeant can create suspect assessments."
+
+
+def can_issue_arrest_order(user):
+    """Only sergeant can issue arrest orders."""
+    if user_has_any_role_key(user, {ROLE_KEY_SERGEANT}):
+        return True, None
+    return False, "Only sergeant can issue arrest orders."
+
+
+def can_issue_interrogation_order(user):
+    """Only sergeant can issue interrogation orders."""
+    if user_has_any_role_key(user, {ROLE_KEY_SERGEANT}):
+        return True, None
+    return False, "Only sergeant can issue interrogation orders."
 
 
 def can_submit_reasoning(user):

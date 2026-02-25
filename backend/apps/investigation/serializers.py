@@ -3,6 +3,8 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from apps.investigation.models import (
+    ArrestOrder,
+    InterrogationOrder,
     ReasoningApproval,
     ReasoningSubmission,
     SuspectAssessment,
@@ -154,3 +156,93 @@ class SuspectAssessmentScoreCreateSerializer(serializers.Serializer):
     """Submit a single score (1–10). role_key is set from request.user's role."""
 
     score = serializers.IntegerField(min_value=1, max_value=10)
+
+
+# ----- Arrest / Interrogation orders (sergeant-only) -----
+
+
+class ArrestOrderCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ArrestOrder
+        fields = ["case", "participant", "reason"]
+
+    def validate(self, attrs):
+        case = attrs["case"]
+        participant = attrs["participant"]
+        if participant.case_id != case.id:
+            raise serializers.ValidationError({"participant": "Participant must belong to this case."})
+        if participant.role_in_case != "suspect":
+            raise serializers.ValidationError({"participant": "Participant must have role suspect."})
+        return attrs
+
+
+class ArrestOrderSerializer(serializers.ModelSerializer):
+    issued_by = ReasoningUserSerializer(read_only=True)
+    case_number = serializers.CharField(source="case.case_number", read_only=True)
+    participant_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ArrestOrder
+        fields = [
+            "id",
+            "case",
+            "case_number",
+            "participant",
+            "participant_display",
+            "issued_by",
+            "issued_at",
+            "reason",
+            "status",
+        ]
+
+    def get_participant_display(self, obj):
+        p = obj.participant
+        return p.full_name or (getattr(p.user, "full_name", None) or str(p.user_id) if p.user_id else str(p.id))
+
+
+class ArrestOrderStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=ArrestOrder.Status.choices)
+
+
+class InterrogationOrderCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InterrogationOrder
+        fields = ["case", "participant", "reason", "scheduled_at"]
+
+    def validate(self, attrs):
+        case = attrs["case"]
+        participant = attrs["participant"]
+        if participant.case_id != case.id:
+            raise serializers.ValidationError({"participant": "Participant must belong to this case."})
+        if participant.role_in_case != "suspect":
+            raise serializers.ValidationError({"participant": "Participant must have role suspect."})
+        return attrs
+
+
+class InterrogationOrderSerializer(serializers.ModelSerializer):
+    ordered_by = ReasoningUserSerializer(read_only=True)
+    case_number = serializers.CharField(source="case.case_number", read_only=True)
+    participant_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InterrogationOrder
+        fields = [
+            "id",
+            "case",
+            "case_number",
+            "participant",
+            "participant_display",
+            "ordered_by",
+            "ordered_at",
+            "scheduled_at",
+            "reason",
+            "status",
+        ]
+
+    def get_participant_display(self, obj):
+        p = obj.participant
+        return p.full_name or (getattr(p.user, "full_name", None) or str(p.user_id) if p.user_id else str(p.id))
+
+
+class InterrogationOrderStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=InterrogationOrder.Status.choices)

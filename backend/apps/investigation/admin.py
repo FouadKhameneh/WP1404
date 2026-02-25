@@ -1,5 +1,7 @@
 from django.contrib import admin
 from apps.investigation.models import (
+    ArrestOrder,
+    InterrogationOrder,
     ReasoningApproval,
     ReasoningSubmission,
     SuspectAssessment,
@@ -32,4 +34,16 @@ class SuspectAssessmentScoreEntryInline(admin.TabularInline):
 class SuspectAssessmentAdmin(admin.ModelAdmin):
     list_display = ["id", "case", "participant", "created_at"]
     inlines = [SuspectAssessmentScoreEntryInline]
+
+
+@admin.register(ArrestOrder)
+class ArrestOrderAdmin(admin.ModelAdmin):
+    list_display = ["id", "case", "participant", "issued_by", "status", "issued_at"]
+    list_filter = ["status"]
+
+
+@admin.register(InterrogationOrder)
+class InterrogationOrderAdmin(admin.ModelAdmin):
+    list_display = ["id", "case", "participant", "ordered_by", "status", "ordered_at", "scheduled_at"]
+    list_filter = ["status"]
 
