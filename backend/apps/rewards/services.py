@@ -1,13 +1,15 @@
 """
 Ranking and reward formula: max(Lj) * max(Di) for ranking; * 20,000,000 for reward amount (rials).
 Persist computation snapshots.
+Reward tip workflow: base user submit -> police officer review -> detective final review -> unique claim ID.
 """
 from datetime import timedelta
 
 from django.utils import timezone
 
+from apps.access.services import user_has_any_role_key
 from apps.cases.models import Case
-from apps.rewards.models import RewardComputationSnapshot
+from apps.rewards.models import RewardComputationSnapshot, RewardTip, generate_reward_claim_id
 from apps.wanted.models import Wanted
 
 REWARD_MULTIPLIER_RIALS = 20_000_000
@@ -80,3 +82,22 @@ def compute_and_persist_snapshots():
         )
         created.append(snapshot)
     return created
+
+
+def can_submit_tip(user):
+    """Any authenticated user (base user) can submit a tip."""
+    return True, None
+
+
+def can_review_tip_as_officer(user):
+    """Only police officer (or patrol_officer) can do first review."""
+    if user_has_any_role_key(user, {"police_officer", "patrol_officer", "officer"}):
+        return True, None
+    return False, "Only police officer can perform first review."
+
+
+def can_review_tip_as_detective(user):
+    """Only detective can do final review."""
+    if user_has_any_role_key(user, {"detective"}):
+        return True, None
+    return False, "Only detective can perform final review."
