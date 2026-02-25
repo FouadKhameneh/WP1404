@@ -7,8 +7,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasRBACPermissions
-from apps.cases.models import Case, Complaint, ComplaintReview
+from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview
 from apps.cases.serializers import (
+    CaseParticipantSerializer,
+    CaseStatusTransitionSerializer,
+    ComplaintCaseSerializer,
     ComplaintResubmitSerializer,
     ComplaintReviewCreateSerializer,
     ComplaintReviewSerializer,
@@ -16,14 +19,18 @@ from apps.cases.serializers import (
     ComplaintSubmitSerializer,
     SceneCaseCreateSerializer,
     SceneCaseSerializer,
+    SuspectAddSerializer,
 )
 from apps.cases.services import (
     can_cadet_review_complaint,
     can_approve_scene_case,
     can_create_scene_case,
+    can_mark_suspect,
+    can_transition_case_status,
     approve_scene_case,
     create_case_for_complaint_if_missing,
     create_scene_case_with_witnesses,
+    transition_case_status,
 )
 from apps.identity.services import error_response, success_response
 from apps.notifications.services import log_timeline_event
@@ -258,6 +265,21 @@ class ComplaintCadetReviewAPIView(APIView):
             payload_summary=payload_summary,
         )
 
+        if created_case is not None:
+            log_timeline_event(
+                event_type="cases.case.created",
+                actor=request.user,
+                summary="Case created from complaint validation.",
+                target_type="cases.case",
+                target_id=str(created_case.id),
+                case_reference=created_case.case_number,
+                payload_summary={
+                    "source_type": created_case.source_type,
+                    "status": created_case.status,
+                    "complaint_id": complaint.id,
+                },
+            )
+
         response_payload = {
             "complaint": ComplaintSerializer(complaint).data,
             "review": ComplaintReviewSerializer(review).data,
@@ -321,3 +343,147 @@ class ComplaintResubmitAPIView(APIView):
             payload_summary={"status": complaint.status},
         )
         return success_response(ComplaintSerializer(complaint).data, status_code=status.HTTP_200_OK)
+
+
+class CaseSuspectAddAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.suspects.add"]
+
+    def post(self, request, case_id):
+        allowed, message = can_mark_suspect(request.user)
+        if not allowed:
+            return error_response(
+                code="ROLE_POLICY_VIOLATION",
+                message=message,
+                details={},
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        case = get_object_or_404(Case.objects.all(), id=case_id)
+        if case.status not in {
+            Case.Status.ACTIVE_INVESTIGATION,
+            Case.Status.SUSPECT_ASSESSMENT,
+        }:
+            return error_response(
+                code="WORKFLOW_POLICY_VIOLATION",
+                message="Suspects can only be added during investigation or suspect assessment.",
+                details={"status": case.status},
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        serializer = SuspectAddSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        participant = CaseParticipant.objects.create(
+            case=case,
+            participant_kind=CaseParticipant.ParticipantKind.CIVILIAN,
+            role_in_case=CaseParticipant.RoleInCase.SUSPECT,
+            full_name=serializer.validated_data["full_name"],
+            phone=serializer.validated_data["phone"],
+            national_id=serializer.validated_data["national_id"],
+            notes=serializer.validated_data.get("notes", ""),
+            added_by=request.user,
+        )
+
+        log_timeline_event(
+            event_type="cases.suspect.marked",
+            actor=request.user,
+            summary="Suspect marked in case.",
+            target_type="cases.case_participant",
+            target_id=str(participant.id),
+            case_reference=case.case_number,
+            payload_summary={
+                "suspect_full_name": participant.full_name,
+                "national_id": participant.national_id,
+            },
+        )
+        return success_response(
+            CaseParticipantSerializer(participant).data,
+            status_code=status.HTTP_201_CREATED,
+        )
+
+
+class CaseStatusTransitionAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.case.transition_status"]
+
+    def post(self, request, case_id):
+        case = get_object_or_404(Case.objects.all(), id=case_id)
+        if case.status in {Case.Status.CLOSED, Case.Status.FINAL_INVALID}:
+            return error_response(
+                code="WORKFLOW_POLICY_VIOLATION",
+                message="Cannot transition a closed or invalidated case.",
+                details={"status": case.status},
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        serializer = CaseStatusTransitionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        new_status = serializer.validated_data["new_status"]
+        allowed, message = can_transition_case_status(request.user, case, new_status)
+        if not allowed:
+            return error_response(
+                code="ROLE_POLICY_VIOLATION"
+                if "Only " in (message or "")
+                else "WORKFLOW_POLICY_VIOLATION",
+                message=message,
+                details={},
+                status_code=status.HTTP_403_FORBIDDEN
+                if "Only " in (message or "")
+                else status.HTTP_409_CONFLICT,
+            )
+
+        updated_case, message = transition_case_status(
+            actor=request.user,
+            case=case,
+            new_status=new_status,
+        )
+        if updated_case is None:
+            return error_response(
+                code="WORKFLOW_POLICY_VIOLATION",
+                message=message or "Transition failed.",
+                details={},
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        event_type_map = {
+            Case.Status.SUSPECT_ASSESSMENT: "cases.case.suspect_assessment",
+            Case.Status.REFERRAL_READY: "cases.case.referral",
+            Case.Status.IN_TRIAL: "cases.case.trial_started",
+            Case.Status.CLOSED: "cases.case.verdict",
+        }
+        summary_map = {
+            Case.Status.SUSPECT_ASSESSMENT: "Case moved to suspect assessment.",
+            Case.Status.REFERRAL_READY: "Case referred to judiciary.",
+            Case.Status.IN_TRIAL: "Case trial started.",
+            Case.Status.CLOSED: "Case verdict recorded, case closed.",
+        }
+        log_timeline_event(
+            event_type=event_type_map[new_status],
+            actor=request.user,
+            summary=summary_map[new_status],
+            target_type="cases.case",
+            target_id=str(updated_case.id),
+            case_reference=updated_case.case_number,
+            payload_summary={"status": new_status},
+        )
+
+        return success_response(
+            ComplaintCaseSerializer(updated_case).data,
+            status_code=status.HTTP_200_OK,
+        )

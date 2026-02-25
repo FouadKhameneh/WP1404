@@ -200,3 +200,57 @@ def approve_scene_case(*, actor, case: Case):
         locked_case.status = Case.Status.ACTIVE_INVESTIGATION
         locked_case.save()
         return locked_case, None
+
+
+def can_mark_suspect(user):
+    role_keys = get_user_role_keys(user)
+    if ROLE_KEY_CADET in role_keys:
+        return False, "Cadet role cannot mark suspects."
+    if "detective" in role_keys or "sergeant" in role_keys:
+        return True, None
+    if role_keys.intersection(POLICE_ROLE_KEYS):
+        return True, None
+    return False, "Only detective or police roles can mark suspects."
+
+
+def can_transition_case_status(user, case: Case, new_status: str):
+    role_keys = get_user_role_keys(user)
+    captain_or_chief = "captain" in role_keys or "chief" in role_keys
+    judge_role = "judge" in role_keys
+    detective_or_sergeant = "detective" in role_keys or "sergeant" in role_keys
+
+    allowed_transitions = {
+        Case.Status.SUSPECT_ASSESSMENT: (Case.Status.ACTIVE_INVESTIGATION,),
+        Case.Status.REFERRAL_READY: (Case.Status.SUSPECT_ASSESSMENT,),
+        Case.Status.IN_TRIAL: (Case.Status.REFERRAL_READY,),
+        Case.Status.CLOSED: (Case.Status.IN_TRIAL,),
+    }
+    if new_status not in allowed_transitions:
+        return False, f"Status '{new_status}' is not a valid transition target."
+
+    from_statuses = allowed_transitions[new_status]
+    if case.status not in from_statuses:
+        return False, f"Case status must be one of {list(from_statuses)} to transition to {new_status}."
+
+    if new_status == Case.Status.SUSPECT_ASSESSMENT and not detective_or_sergeant:
+        return False, "Only detective or sergeant can move case to suspect assessment."
+    if new_status == Case.Status.REFERRAL_READY and not captain_or_chief:
+        return False, "Only captain or chief can refer case to judiciary."
+    if new_status in (Case.Status.IN_TRIAL, Case.Status.CLOSED) and not judge_role:
+        return False, "Only judge can set case to trial or verdict."
+
+    return True, None
+
+
+def transition_case_status(*, actor, case: Case, new_status: str):
+    allowed, message = can_transition_case_status(actor, case, new_status)
+    if not allowed:
+        return None, message
+
+    with transaction.atomic():
+        locked = Case.objects.select_for_update().get(pk=case.pk)
+        if locked.status != case.status:
+            return None, "Case status changed; retry."
+        locked.status = new_status
+        locked.save()
+        return locked, None

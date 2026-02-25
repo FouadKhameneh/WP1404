@@ -205,3 +205,39 @@ class ComplaintResubmitSerializer(serializers.Serializer):
         if not text:
             raise serializers.ValidationError("This field may not be blank.")
         return text
+
+
+class SuspectAddSerializer(serializers.Serializer):
+    full_name = serializers.CharField(max_length=255)
+    phone = serializers.CharField(max_length=20)
+    national_id = serializers.CharField(max_length=32)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_full_name(self, value):
+        text = value.strip()
+        if not text:
+            raise serializers.ValidationError("This field may not be blank.")
+        return text
+
+
+class CaseStatusTransitionSerializer(serializers.Serializer):
+    new_status = serializers.ChoiceField(choices=Case.Status.choices)
+
+    def validate_new_status(self, value):
+        allowed = {
+            Case.Status.SUSPECT_ASSESSMENT,
+            Case.Status.REFERRAL_READY,
+            Case.Status.IN_TRIAL,
+            Case.Status.CLOSED,
+        }
+        if value not in allowed:
+            raise serializers.ValidationError(
+                f"Invalid transition target. Must be one of: {', '.join(allowed)}"
+            )
+        return value
+
+
+class CaseParticipantSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaseParticipant
+        fields = ["id", "participant_kind", "role_in_case", "full_name", "phone", "national_id", "notes", "created_at"]
