@@ -101,3 +101,14 @@ def can_review_tip_as_detective(user):
     if user_has_any_role_key(user, {"detective"}):
         return True, None
     return False, "Only detective can perform final review."
+
+
+# Authorized police ranks for reward claim verification (National ID + Unique ID)
+CLAIM_VERIFICATION_ROLE_KEYS = {"police_officer", "patrol_officer", "officer", "detective", "sergeant", "captain", "chief"}
+
+
+def can_verify_reward_claim(user):
+    """Only authorized police ranks can verify reward claims."""
+    if user_has_any_role_key(user, CLAIM_VERIFICATION_ROLE_KEYS):
+        return True, None
+    return False, "Only authorized police ranks can verify reward claims."

@@ -122,3 +122,62 @@ class RewardTipWorkflowTests(APITestCase):
         self.assertEqual(r3.data["data"]["status"], "approved")
         self.assertTrue(r3.data["data"]["reward_claim_id"].startswith("RWD-"))
         self.assertEqual(len(r3.data["data"]["reward_claim_id"]), 16)  # RWD- + 12 hex
+
+
+class RewardClaimVerifyTests(APITestCase):
+    """Task 39: Verify claim using National ID + Unique ID; authorized police ranks only."""
+
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser(
+            username="admin_v", email="admin_v@example.com", password="StrongPass123!",
+            phone="09120010001", national_id="1000000001", full_name="Admin V",
+        )
+        self.submitter = get_user_model().objects.create_user(
+            username="sub_v", email="sub_v@example.com", password="StrongPass123!",
+            phone="09120010002", national_id="1000000002", full_name="Submitter V",
+        )
+        self.officer_user = get_user_model().objects.create_user(
+            username="off_v", email="off_v@example.com", password="StrongPass123!",
+            phone="09120010003", national_id="1000000003", full_name="Officer V",
+        )
+        from apps.access.models import Permission, Role, RolePermission, UserRoleAssignment
+        from rest_framework.authtoken.models import Token
+        perm, _ = Permission.objects.get_or_create(
+            code="rewards.claim.verify",
+            defaults={"name": "Verify claim", "resource": "rewards.claim", "action": "verify"},
+        )
+        role, _ = Role.objects.get_or_create(key="officer", defaults={"name": "Officer"})
+        RolePermission.objects.get_or_create(role=role, permission=perm)
+        UserRoleAssignment.objects.create(user=self.officer_user, role=role, assigned_by=self.admin)
+        self.officer_token = Token.objects.create(user=self.officer_user)
+        self.tip = RewardTip.objects.create(
+            submitted_by=self.submitter,
+            case_reference="CASE-V",
+            subject="Tip",
+            content="Content",
+            status=RewardTip.Status.APPROVED,
+            reward_claim_id="RWD-ABC123DEF456",
+        )
+
+    def test_verify_claim_success(self):
+        from rest_framework import status
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.officer_token.key}")
+        r = self.client.post(
+            "/api/v1/rewards/verify-claim/",
+            {"national_id": "1000000002", "reward_claim_id": "RWD-ABC123DEF456"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertTrue(r.data["data"]["valid"])
+        self.assertEqual(r.data["data"]["reward_claim_id"], "RWD-ABC123DEF456")
+
+    def test_verify_claim_wrong_national_id_invalid(self):
+        from rest_framework import status
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.officer_token.key}")
+        r = self.client.post(
+            "/api/v1/rewards/verify-claim/",
+            {"national_id": "9999999999", "reward_claim_id": "RWD-ABC123DEF456"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertFalse(r.data["data"]["valid"])

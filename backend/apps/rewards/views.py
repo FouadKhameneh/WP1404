@@ -9,7 +9,7 @@ from apps.access.permissions import HasRBACPermissions
 from apps.identity.services import error_response, success_response
 from apps.rewards.models import RewardTip, generate_reward_claim_id
 from apps.rewards.serializers import RewardTipCreateSerializer, RewardTipReviewSerializer, RewardTipSerializer
-from apps.rewards.services import can_review_tip_as_detective, can_review_tip_as_officer
+from apps.rewards.services import can_review_tip_as_detective, can_review_tip_as_officer, can_verify_reward_claim
 
 
 class RewardTipListCreateAPIView(APIView):
@@ -106,3 +106,54 @@ class RewardTipReviewAPIView(APIView):
                 status_code=status.HTTP_409_CONFLICT,
             )
         return success_response(RewardTipSerializer(tip).data, status_code=status.HTTP_200_OK)
+
+
+class RewardClaimVerifyAPIView(APIView):
+    """Verify reward claim using National ID + Unique ID. Authorized police ranks only."""
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    permission_codes_by_method = {"POST": ["rewards.claim.verify"]}
+
+    def post(self, request):
+        allowed, message = can_verify_reward_claim(request.user)
+        if not allowed:
+            return error_response(
+                code="ROLE_POLICY_VIOLATION",
+                message=message,
+                details={},
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        national_id = (request.data.get("national_id") or request.query_params.get("national_id") or "").strip()
+        reward_claim_id = (request.data.get("reward_claim_id") or request.query_params.get("reward_claim_id") or "").strip()
+        if not national_id or not reward_claim_id:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="national_id and reward_claim_id are required.",
+                details={"national_id": ["Required."] if not national_id else [], "reward_claim_id": ["Required."] if not reward_claim_id else []},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        tip = (
+            RewardTip.objects.filter(
+                reward_claim_id=reward_claim_id,
+                status=RewardTip.Status.APPROVED,
+                submitted_by__national_id=national_id,
+            )
+            .select_related("submitted_by")
+            .first()
+        )
+        if not tip:
+            return success_response(
+                {"valid": False, "message": "No matching approved claim for this National ID and Unique ID."},
+                status_code=status.HTTP_200_OK,
+            )
+        return success_response(
+            {
+                "valid": True,
+                "reward_claim_id": tip.reward_claim_id,
+                "case_reference": tip.case_reference,
+                "subject": tip.subject,
+                "submitted_at": tip.created_at.isoformat(),
+            },
+            status_code=status.HTTP_200_OK,
+        )
