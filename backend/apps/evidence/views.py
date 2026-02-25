@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -7,8 +8,20 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasRBACPermissions
-from apps.evidence.models import BiologicalMedicalEvidence, BiologicalMedicalMediaReference, EvidenceReview, WitnessTestimonyAttachment
-from apps.evidence.serializers import EvidenceReviewCreateSerializer, EvidenceReviewSerializer
+from apps.evidence.models import (
+    BiologicalMedicalEvidence,
+    BiologicalMedicalMediaReference,
+    Evidence,
+    EvidenceLink,
+    EvidenceReview,
+    WitnessTestimonyAttachment,
+)
+from apps.evidence.serializers import (
+    EvidenceLinkCreateSerializer,
+    EvidenceLinkSerializer,
+    EvidenceReviewCreateSerializer,
+    EvidenceReviewSerializer,
+)
 from apps.evidence.services.media import generate_signed_token, verify_signed_token
 from apps.identity.services import error_response, success_response
 
@@ -236,3 +249,89 @@ class EvidenceMediaAccessByTokenAPIView(APIView):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         return response
+
+
+# --- Evidence links (detective board graph) ---
+
+
+class EvidenceLinkListCreateAPIView(APIView):
+    """
+    GET: List evidence links. Filter by case_id or evidence_id.
+    POST: Create a link between two evidence items.
+    """
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.cases.view"]
+
+    def get(self, request):
+        qs = EvidenceLink.objects.select_related("source", "target", "created_by").order_by("-created_at")
+        case_id = request.query_params.get("case_id")
+        evidence_id = request.query_params.get("evidence_id")
+        if case_id:
+            qs = qs.filter(source__case_id=case_id)
+        if evidence_id:
+            qs = qs.filter(Q(source_id=evidence_id) | Q(target_id=evidence_id))
+        serializer = EvidenceLinkSerializer(qs, many=True)
+        return success_response({"links": serializer.data})
+
+    def post(self, request):
+        serializer = EvidenceLinkCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Request validation failed.",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        source_id = serializer.validated_data["source_id"]
+        target_id = serializer.validated_data["target_id"]
+        label = serializer.validated_data.get("label", "")
+        if source_id == target_id:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Source and target cannot be the same.",
+                details={"source_id": source_id, "target_id": target_id},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        source = get_object_or_404(Evidence.objects.select_related("case"), pk=source_id)
+        target = get_object_or_404(Evidence.objects.select_related("case"), pk=target_id)
+        if source.case_id != target.case_id:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Source and target must belong to the same case.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        link = EvidenceLink.objects.create(
+            source=source,
+            target=target,
+            label=label,
+            created_by=request.user,
+        )
+        return success_response(
+            {"link": EvidenceLinkSerializer(link).data},
+            status_code=status.HTTP_201_CREATED,
+        )
+
+
+class EvidenceLinkDetailAPIView(APIView):
+    """
+    GET: Retrieve a single link.
+    DELETE: Remove a link.
+    """
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.cases.view"]
+
+    def get(self, request, link_id):
+        link = get_object_or_404(
+            EvidenceLink.objects.select_related("source", "target", "created_by"),
+            pk=link_id,
+        )
+        return success_response({"link": EvidenceLinkSerializer(link).data})
+
+    def delete(self, request, link_id):
+        link = get_object_or_404(EvidenceLink, pk=link_id)
+        link.delete()
+        return success_response({"deleted": True}, status_code=status.HTTP_200_OK)

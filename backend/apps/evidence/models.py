@@ -397,3 +397,57 @@ class OtherEvidence(Evidence):
 
     def __str__(self):
         return f"Other: {self.title}"
+
+
+class EvidenceLink(models.Model):
+    """
+    Edge connecting two evidence items for detective board graph logic.
+    Represents a relationship between evidence nodes.
+    """
+
+    source = models.ForeignKey(
+        Evidence,
+        on_delete=models.CASCADE,
+        related_name="outgoing_links",
+    )
+    target = models.ForeignKey(
+        Evidence,
+        on_delete=models.CASCADE,
+        related_name="incoming_links",
+    )
+    label = models.CharField(max_length=100, blank=True, help_text="Optional edge label")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="evidence_links_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Evidence Link"
+        verbose_name_plural = "Evidence Links"
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(source=models.F("target")),
+                name="evidence_link_no_self_loop",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["source", "target"]),
+            models.Index(fields=["target"]),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.source_id and self.target_id and self.source_id == self.target_id:
+            raise ValidationError("Source and target cannot be the same evidence.")
+        if self.source_id and self.target_id:
+            src = Evidence.objects.filter(pk=self.source_id).first()
+            tgt = Evidence.objects.filter(pk=self.target_id).first()
+            if src and tgt and src.case_id != tgt.case_id:
+                raise ValidationError("Source and target must belong to the same case.")
+
+    def __str__(self):
+        return f"{self.source.title} → {self.target.title}"

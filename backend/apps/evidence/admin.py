@@ -4,6 +4,7 @@ from .models import (
     BiologicalMedicalEvidence,
     BiologicalMedicalMediaReference,
     Evidence,
+    EvidenceLink,
     EvidenceReview,
     IdentificationEvidence,
     OtherEvidence,
@@ -82,6 +83,14 @@ class EvidenceReviewInline(admin.TabularInline):
 @admin.register(EvidenceReview)
 class EvidenceReviewAdmin(admin.ModelAdmin):
     list_display = ("biological_medical_evidence", "decision", "reviewed_by", "reviewed_at")
+
+
+@admin.register(EvidenceLink)
+class EvidenceLinkAdmin(admin.ModelAdmin):
+    list_display = ("source", "target", "label", "created_by", "created_at")
+    list_filter = ("created_at",)
+    raw_id_fields = ("source", "target", "created_by")
+    date_hierarchy = "created_at"
     list_filter = ("decision", "reviewed_at")
     raw_id_fields = ("biological_medical_evidence", "reviewed_by")
     date_hierarchy = "reviewed_at"
