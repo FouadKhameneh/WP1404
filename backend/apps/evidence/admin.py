@@ -5,6 +5,7 @@ from .models import (
     BiologicalMedicalMediaReference,
     Evidence,
     IdentificationEvidence,
+    OtherEvidence,
     VehicleEvidence,
     WitnessTestimony,
     WitnessTestimonyAttachment,
@@ -63,6 +64,15 @@ class VehicleEvidenceAdmin(admin.ModelAdmin):
 
 @admin.register(IdentificationEvidence)
 class IdentificationEvidenceAdmin(admin.ModelAdmin):
+    list_display = ("title", "case", "registrar", "registered_at")
+    list_filter = ("registered_at",)
+    search_fields = ("title", "description")
+    raw_id_fields = ("registrar", "case")
+    date_hierarchy = "registered_at"
+
+
+@admin.register(OtherEvidence)
+class OtherEvidenceAdmin(admin.ModelAdmin):
     list_display = ("title", "case", "registrar", "registered_at")
     list_filter = ("registered_at",)
     search_fields = ("title", "description")

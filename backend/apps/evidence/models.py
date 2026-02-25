@@ -342,3 +342,22 @@ class IdentificationEvidence(Evidence):
 
     def __str__(self):
         return f"Identification: {self.title}"
+
+
+class OtherEvidence(Evidence):
+    """
+    Generic "other" evidence subtype for simple title-description records.
+
+    No additional fields beyond base Evidence (title, description, registered_at, etc.).
+    """
+
+    class Meta:
+        verbose_name = "Other Evidence"
+        verbose_name_plural = "Other Evidence"
+
+    def save(self, *args, **kwargs):
+        self.evidence_type = Evidence.EvidenceType.OTHER
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Other: {self.title}"
