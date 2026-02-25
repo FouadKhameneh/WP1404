@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
 from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview, SceneCaseReport
@@ -241,3 +242,99 @@ class CaseParticipantSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaseParticipant
         fields = ["id", "participant_kind", "role_in_case", "full_name", "phone", "national_id", "notes", "created_at"]
+
+
+class CaseListSerializer(serializers.ModelSerializer):
+    """Compact serializer for case listing."""
+
+    created_by = ComplaintUserSerializer(read_only=True)
+
+    class Meta:
+        model = Case
+        fields = [
+            "id",
+            "case_number",
+            "title",
+            "summary",
+            "level",
+            "source_type",
+            "status",
+            "priority",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class TimelineEventSummarySerializer(serializers.Serializer):
+    """Summary of a timeline event for case detail."""
+
+    id = serializers.IntegerField()
+    event_type = serializers.CharField()
+    summary = serializers.CharField()
+    payload_summary = serializers.JSONField(default=dict)
+    created_at = serializers.DateTimeField()
+
+
+class CaseParticipantSummarySerializer(serializers.ModelSerializer):
+    """Participant summary for case detail nested view."""
+
+    class Meta:
+        model = CaseParticipant
+        fields = ["id", "participant_kind", "role_in_case", "full_name", "phone", "national_id", "notes", "created_at"]
+
+
+class CaseDetailSerializer(serializers.ModelSerializer):
+    """Full case detail with nested participants and timeline summaries."""
+
+    created_by = ComplaintUserSerializer(read_only=True)
+    assigned_to = ComplaintUserSerializer(read_only=True)
+    scene_report_detail = serializers.SerializerMethodField()
+    participants = serializers.SerializerMethodField()
+    timeline_summaries = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Case
+        fields = [
+            "id",
+            "case_number",
+            "title",
+            "summary",
+            "level",
+            "source_type",
+            "status",
+            "priority",
+            "assigned_to",
+            "assigned_role_key",
+            "created_by",
+            "scene_report_detail",
+            "participants",
+            "timeline_summaries",
+            "submitted_at",
+            "under_review_at",
+            "investigation_started_at",
+            "suspect_assessed_at",
+            "referral_ready_at",
+            "trial_started_at",
+            "closed_at",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_scene_report_detail(self, obj):
+        if obj.source_type != Case.SourceType.SCENE_REPORT:
+            return None
+        try:
+            return SceneCaseReportSerializer(obj.scene_report_detail).data
+        except ObjectDoesNotExist:
+            return None
+
+    def get_participants(self, obj):
+        qs = obj.participants.order_by("role_in_case", "id")
+        return CaseParticipantSummarySerializer(qs, many=True).data
+
+    def get_timeline_summaries(self, obj):
+        from apps.notifications.models import TimelineEvent
+
+        events = TimelineEvent.objects.filter(case_reference=obj.case_number).order_by("-created_at")[:50]
+        return TimelineEventSummarySerializer(events, many=True).data

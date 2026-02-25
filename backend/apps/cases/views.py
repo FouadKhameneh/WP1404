@@ -1,14 +1,18 @@
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.authentication import TokenAuthentication
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasRBACPermissions
 from apps.cases.models import Case, CaseParticipant, Complaint, ComplaintReview
 from apps.cases.serializers import (
+    CaseDetailSerializer,
+    CaseListSerializer,
     CaseParticipantSerializer,
     CaseStatusTransitionSerializer,
     ComplaintCaseSerializer,
@@ -34,6 +38,94 @@ from apps.cases.services import (
 )
 from apps.identity.services import error_response, success_response
 from apps.notifications.services import log_timeline_event
+
+
+class CaseListPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class CaseListAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.cases.view"]
+
+    def get(self, request):
+        queryset = Case.objects.select_related("created_by").order_by("-created_at")
+
+        # Filter by status
+        status_val = request.query_params.get("status")
+        if status_val:
+            queryset = queryset.filter(status=status_val)
+
+        # Filter by source_type
+        source_type = request.query_params.get("source_type")
+        if source_type:
+            queryset = queryset.filter(source_type=source_type)
+
+        # Filter by level
+        level = request.query_params.get("level")
+        if level:
+            queryset = queryset.filter(level=level)
+
+        # Search in title, summary, case_number
+        search = request.query_params.get("search", "").strip()
+        if search:
+            q = Q(title__icontains=search) | Q(summary__icontains=search) | Q(case_number__icontains=search)
+            queryset = queryset.filter(q)
+
+        # Sort
+        sort_by = request.query_params.get("sort", "-created_at")
+        allowed_sorts = {
+            "created_at",
+            "-created_at",
+            "updated_at",
+            "-updated_at",
+            "status",
+            "-status",
+            "case_number",
+            "-case_number",
+            "level",
+            "-level",
+            "priority",
+            "-priority",
+        }
+        if sort_by and sort_by.strip() in allowed_sorts:
+            queryset = queryset.order_by(sort_by.strip())
+
+        paginator = CaseListPagination()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        serializer = CaseListSerializer(page, many=True)
+        payload = {
+            "results": serializer.data,
+            "count": paginator.page.paginator.count,
+            "total_pages": paginator.page.paginator.num_pages,
+            "current_page": paginator.page.number,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
+        }
+        return success_response(payload, status_code=status.HTTP_200_OK)
+
+
+class CaseDetailAPIView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.cases.view"]
+
+    def get(self, request, case_id):
+        case = get_object_or_404(
+            Case.objects.select_related(
+                "created_by",
+                "assigned_to",
+                "scene_report_detail",
+                "scene_report_detail__reported_by",
+                "scene_report_detail__superior_approved_by",
+            ).prefetch_related("participants"),
+            id=case_id,
+        )
+        serializer = CaseDetailSerializer(case)
+        return success_response(serializer.data, status_code=status.HTTP_200_OK)
 
 
 class SceneCaseCreateAPIView(APIView):
