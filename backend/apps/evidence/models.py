@@ -2,7 +2,9 @@ import os
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 
 
 def evidence_attachment_upload_path(instance, filename):
@@ -198,3 +200,49 @@ class BiologicalMedicalMediaReference(models.Model):
 
     def __str__(self):
         return f"{self.get_media_type_display()}: {self.file.name}"
+
+
+class VehicleEvidence(Evidence):
+    """
+    Vehicle evidence subtype with XOR invariant: exactly one of plate or serial_number.
+
+    Per project spec: model, plate, color recorded. If no plate, serial_number required.
+    Plate and serial_number cannot both be set.
+    """
+
+    model = models.CharField(max_length=100)
+    color = models.CharField(max_length=50)
+    plate = models.CharField(max_length=20, blank=True, help_text="Required if vehicle has plate; mutually exclusive with serial_number")
+    serial_number = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Required if vehicle has no plate; mutually exclusive with plate",
+    )
+
+    class Meta:
+        verbose_name = "Vehicle Evidence"
+        verbose_name_plural = "Vehicle Evidence"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(plate__gt="") & Q(serial_number="") | Q(plate="") & Q(serial_number__gt="")
+                ),
+                name="evidence_vehicle_plate_xor_serial",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.evidence_type = Evidence.EvidenceType.VEHICLE
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        has_plate = bool(self.plate and self.plate.strip())
+        has_serial = bool(self.serial_number and self.serial_number.strip())
+        if has_plate and has_serial:
+            raise ValidationError("Either plate or serial_number must be set, never both.")
+        if not has_plate and not has_serial:
+            raise ValidationError("Either plate or serial_number must be set, never neither.")
+
+    def __str__(self):
+        return f"Vehicle: {self.model} ({self.plate or self.serial_number})"
