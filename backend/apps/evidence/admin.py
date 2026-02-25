@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import Evidence, WitnessTestimony, WitnessTestimonyAttachment
+from .models import (
+    BiologicalMedicalEvidence,
+    BiologicalMedicalMediaReference,
+    Evidence,
+    WitnessTestimony,
+    WitnessTestimonyAttachment,
+)
 
 
 @admin.register(Evidence)
@@ -26,3 +32,19 @@ class WitnessTestimonyAdmin(admin.ModelAdmin):
     raw_id_fields = ("registrar", "case")
     date_hierarchy = "registered_at"
     inlines = [WitnessTestimonyAttachmentInline]
+
+
+class BiologicalMedicalMediaReferenceInline(admin.TabularInline):
+    model = BiologicalMedicalMediaReference
+    extra = 0
+    fields = ("file", "media_type", "width", "height", "file_size", "mime_type", "caption")
+
+
+@admin.register(BiologicalMedicalEvidence)
+class BiologicalMedicalEvidenceAdmin(admin.ModelAdmin):
+    list_display = ("title", "case", "registrar", "coroner_status", "result_submitted_at", "registered_at")
+    list_filter = ("coroner_status", "registered_at")
+    search_fields = ("title", "description", "coroner_result")
+    raw_id_fields = ("registrar", "case", "coroner")
+    date_hierarchy = "registered_at"
+    inlines = [BiologicalMedicalMediaReferenceInline]

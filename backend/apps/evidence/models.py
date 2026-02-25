@@ -11,6 +11,12 @@ def evidence_attachment_upload_path(instance, filename):
     return f"evidence/witness_testimony/{instance.witness_testimony_id}/{uuid.uuid4().hex}{ext}"
 
 
+def biological_medical_media_upload_path(instance, filename):
+    """Store biological/medical media under evidence/biological_medical/{id}/{uuid}{ext}."""
+    ext = os.path.splitext(filename)[1] or ""
+    return f"evidence/biological_medical/{instance.biological_medical_evidence_id}/{uuid.uuid4().hex}{ext}"
+
+
 class Evidence(models.Model):
     """
     Base Evidence model with shared fields and type discriminator.
@@ -118,3 +124,77 @@ class WitnessTestimonyAttachment(models.Model):
 
     def __str__(self):
         return f"{self.get_media_type_display()} attachment: {self.file.name}"
+
+
+class BiologicalMedicalEvidence(Evidence):
+    """
+    Biological/medical evidence subtype with media references and deferred coroner result.
+
+    Evidence (e.g. blood, hair, fingerprints) requiring coroner or identity-database review.
+    Media references store images/photos. Coroner result is initially empty and can be
+    filled in later by the coroner.
+    """
+
+    class CoronerStatus(models.TextChoices):
+        PENDING = "pending", "Pending Coroner Review"
+        SUBMITTED = "submitted", "Submitted to Coroner"
+        RESULT_RECEIVED = "result_received", "Result Received"
+
+    coroner_status = models.CharField(
+        max_length=20,
+        choices=CoronerStatus.choices,
+        default=CoronerStatus.PENDING,
+        db_index=True,
+    )
+    coroner_result = models.TextField(blank=True, help_text="Coroner or database review result (filled when received)")
+    coroner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="biological_medical_reviews",
+    )
+    result_submitted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Biological / Medical Evidence"
+        verbose_name_plural = "Biological / Medical Evidence"
+
+    def save(self, *args, **kwargs):
+        self.evidence_type = Evidence.EvidenceType.BIOLOGICAL_MEDICAL
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Biological/Medical: {self.title}"
+
+
+class BiologicalMedicalMediaReference(models.Model):
+    """
+    Media reference (image/video) for biological/medical evidence.
+    """
+
+    class MediaType(models.TextChoices):
+        IMAGE = "image", "Image"
+        VIDEO = "video", "Video"
+
+    biological_medical_evidence = models.ForeignKey(
+        BiologicalMedicalEvidence,
+        on_delete=models.CASCADE,
+        related_name="media_references",
+    )
+    file = models.FileField(upload_to=biological_medical_media_upload_path)
+    media_type = models.CharField(max_length=10, choices=MediaType.choices, db_index=True, default=MediaType.IMAGE)
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    file_size = models.PositiveBigIntegerField(null=True, blank=True)
+    mime_type = models.CharField(max_length=100, blank=True)
+    caption = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Biological/Medical Media Reference"
+        verbose_name_plural = "Biological/Medical Media References"
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.get_media_type_display()}: {self.file.name}"
