@@ -12,30 +12,19 @@ export function ErrorDisplay({
   return (
     <div
       role="alert"
+      className="card"
       style={{
         padding: "1.5rem",
-        backgroundColor: "#fef2f2",
-        border: "1px solid #fecaca",
-        borderRadius: 8,
-        color: "#991b1b",
+        background: "rgba(220, 38, 38, 0.08)",
+        borderColor: "var(--danger)",
+        maxWidth: 480,
+        margin: "2rem auto",
       }}
     >
-      <p>{message}</p>
+      <p style={{ margin: 0, color: "#fca5a5" }}>{message}</p>
       {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          style={{
-            marginTop: "0.75rem",
-            padding: "0.5rem 1rem",
-            backgroundColor: "#dc2626",
-            color: "white",
-            border: "none",
-            borderRadius: 6,
-            cursor: "pointer",
-          }}
-        >
-          Retry
+        <button type="button" className="btn btn-secondary" onClick={onRetry} style={{ marginTop: "1rem" }}>
+          تلاش مجدد
         </button>
       )}
     </div>

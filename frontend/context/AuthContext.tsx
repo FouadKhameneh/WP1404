@@ -103,7 +103,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         data
       );
       if (res.error || !res.data) {
-        setError(res.error?.message || (res.error?.details as { identifier?: string[] })?.["identifier"]?.[0] || "Registration failed");
+        const details = res.error?.details as Record<string, string[] | string> | undefined;
+        let msg = res.error?.message || "ثبت‌نام ناموفق بود.";
+        if (details && typeof details === "object") {
+          const parts = Object.entries(details).map(([k, v]) => {
+            const text = Array.isArray(v) ? v[0] : v;
+            return `${k}: ${text}`;
+          });
+          if (parts.length) msg = parts.join(" — ");
+        }
+        setError(msg);
         return false;
       }
       const t = (res.data as { access_token?: string }).access_token ?? (res.data as { token?: string }).token;

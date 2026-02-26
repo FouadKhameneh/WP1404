@@ -19,7 +19,7 @@ export default function ReportsPage() {
     api
       .get<GeneralReport>("/reports/general/", token)
       .then((res) => {
-        if (res.error) setError(res.error.message || "Failed to load report");
+        if (res.error) setError(res.error.message || "بارگذاری گزارش ناموفق بود.");
         else if (res.data) setReport(res.data as GeneralReport);
       })
       .finally(() => setLoading(false));
@@ -30,11 +30,15 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <h1>General reporting</h1>
-      <p>Aggregated statistics: homepage, case counts, approvals, wanted rankings, reward outcomes.</p>
-      <pre style={{ background: "#f5f5f5", padding: "1rem", overflow: "auto" }}>
-        {JSON.stringify(report, null, 2)}
-      </pre>
+      <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.75rem", color: "var(--text)" }}>گزارش کلی</h1>
+      <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem" }}>
+        آمار تجمیعی: داشبورد، تعداد پرونده، تأییدها، تحت تعقیب، جوایز
+      </p>
+      <div className="card" style={{ overflow: "auto" }}>
+        <pre style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {JSON.stringify(report, null, 2)}
+        </pre>
+      </div>
     </div>
   );
 }

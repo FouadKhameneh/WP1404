@@ -99,30 +99,26 @@ export default function DetectiveBoardPage() {
 
   return (
     <div>
-      <h1>Detective board</h1>
-      <p>Drag items to reposition; drop one on another to link. Export as image (requires html-to-image).</p>
-      <nav style={{ marginBottom: "1rem" }}>
-        <Link href="/dashboard">Dashboard</Link>
-      </nav>
+      <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.75rem", color: "var(--text)" }}>بورد کارآگاه</h1>
+      <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
+        آیتم‌ها را بکشید؛ روی هم رها کنید تا لینک شوند. خروجی تصویر PNG.
+      </p>
       <div style={{ marginBottom: "1rem" }}>
-        <button
-          type="button"
-          onClick={exportAsImage}
-          disabled={exporting}
-          style={{ padding: "0.5rem 1rem" }}
-        >
-          {exporting ? "Exporting..." : "Export as PNG"}
+        <button type="button" className="btn btn-primary" onClick={exportAsImage} disabled={exporting}>
+          {exporting ? "در حال خروجی..." : "خروجی PNG"}
         </button>
       </div>
       <div
         id="detective-board"
         style={{
           position: "relative",
-          width: 600,
+          width: "100%",
+          maxWidth: 600,
           height: 400,
-          border: "2px solid #ccc",
-          background: "#fafafa",
+          border: "2px solid var(--border)",
+          background: "var(--bg-card)",
           marginBottom: "1rem",
+          borderRadius: "var(--radius)",
         }}
         onMouseMove={handleBoardMouseMove}
         onMouseLeave={handleBoardMouseUp}
@@ -141,9 +137,10 @@ export default function DetectiveBoardPage() {
               left: it.x,
               top: it.y,
               padding: "8px 12px",
-              background: dragging === it.id ? "#dbeafe" : "#e5e7eb",
-              border: "1px solid #9ca3af",
-              borderRadius: 6,
+              background: dragging === it.id ? "var(--accent)" : "var(--bg-elevated)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
               cursor: "grab",
               userSelect: "none",
             }}
@@ -172,7 +169,7 @@ export default function DetectiveBoardPage() {
           );
         })}
       </div>
-      <p>Linked pairs: {linked.length}</p>
+      <p style={{ color: "var(--text-muted)" }}>زوج‌های لینک‌شده: {linked.length}</p>
     </div>
   );
 }

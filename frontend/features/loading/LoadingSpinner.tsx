@@ -9,8 +9,8 @@ export function LoadingSpinner({ className = "" }: { className?: string }) {
       style={{
         width: 32,
         height: 32,
-        border: "3px solid #e5e7eb",
-        borderTopColor: "#3b82f6",
+        border: "3px solid var(--border)",
+        borderTopColor: "var(--accent)",
         borderRadius: "50%",
         animation: "spin 0.8s linear infinite",
       }}
@@ -20,9 +20,9 @@ export function LoadingSpinner({ className = "" }: { className?: string }) {
 
 export function PageLoading() {
   return (
-    <div style={{ padding: "2rem", textAlign: "center" }}>
+    <div className="card" style={{ padding: "2rem", textAlign: "center", maxWidth: 320, margin: "2rem auto" }}>
       <LoadingSpinner />
-      <p style={{ marginTop: "1rem" }}>Loading...</p>
+      <p style={{ marginTop: "1rem", color: "var(--text-muted)" }}>در حال بارگذاری...</p>
     </div>
   );
 }

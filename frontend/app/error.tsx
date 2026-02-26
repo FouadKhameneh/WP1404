@@ -14,8 +14,8 @@ export default function Error({
     console.error(error);
   }, [error]);
   return (
-    <div style={{ padding: "2rem" }}>
-      <ErrorDisplay message={error.message || "Something went wrong"} onRetry={reset} />
+    <div style={{ padding: "2rem", minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <ErrorDisplay message={error.message || "خطایی رخ داد."} onRetry={reset} />
     </div>
   );
 }

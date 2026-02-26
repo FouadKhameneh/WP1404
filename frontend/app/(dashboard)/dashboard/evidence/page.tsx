@@ -20,7 +20,7 @@ export default function EvidencePage() {
     api
       .get<{ results?: EvidenceLinkItem[] }>("/evidence/links/", token)
       .then((res) => {
-        if (res.error) setError(res.error.message || "Failed to load evidence links");
+        if (res.error) setError(res.error.message || "بارگذاری لینک‌های مدارک ناموفق بود.");
         else if (res.data) {
           const list = (res.data as { results?: EvidenceLinkItem[] }).results ?? (Array.isArray(res.data) ? res.data : []);
           setLinks(list);
@@ -30,29 +30,36 @@ export default function EvidencePage() {
   }, [token]);
 
   if (!token) return null;
-
   if (loading) return <PageLoading />;
   if (error) return <ErrorDisplay message={error} onRetry={() => window.location.reload()} />;
 
   return (
     <div>
-      <h1>Evidence registration & review</h1>
-      <p>Evidence links and biological/medical evidence review (coroner decision).</p>
-      <nav style={{ marginBottom: "1rem" }}>
-        <Link href="/dashboard">Dashboard</Link>
-      </nav>
-      <h2>Evidence links</h2>
-      {links.length === 0 ? (
-        <p>No evidence links. Use the API to create links between evidence items.</p>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {links.map((l) => (
-            <li key={l.id} style={{ padding: "0.5rem 0", borderBottom: "1px solid #eee" }}>
-              Link #{l.id} — {l.source_type ?? "—"} → {l.target_type ?? "—"}
-            </li>
-          ))}
-        </ul>
-      )}
+      <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.75rem", color: "var(--text)" }}>ثبت و بررسی مدارک</h1>
+      <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem" }}>
+        لینک مدارک و بررسی پزشکی‌قانونی (تصمیم کورونر)
+      </p>
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        {links.length === 0 ? (
+          <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
+            لینک مدرکی وجود ندارد. از API برای ایجاد لینک بین آیتم‌ها استفاده کنید.
+          </div>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {links.map((l) => (
+              <li key={l.id} className="list-item">
+                <span>لینک #{l.id}</span>
+                <span style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
+                  {l.source_type ?? "—"} → {l.target_type ?? "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <p style={{ marginTop: "1rem" }}>
+        <Link href="/dashboard">بازگشت به داشبورد</Link>
+      </p>
     </div>
   );
 }
