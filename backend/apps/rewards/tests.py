@@ -40,10 +40,10 @@ class RankingRewardFormulaTests(APITestCase):
             national_id="8000001001",
             added_by=self.admin,
         )
-        self.wanted = Wanted.objects.create(
+        self.wanted, _ = Wanted.objects.get_or_create(
             case=self.case_level2,
             participant=self.participant,
-            status=Wanted.Status.MOST_WANTED,
+            defaults={"status": Wanted.Status.MOST_WANTED},
         )
 
     def test_level_to_di(self):

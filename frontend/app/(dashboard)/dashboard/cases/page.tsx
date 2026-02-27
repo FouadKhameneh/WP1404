@@ -3,7 +3,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { ErrorDisplay } from "@/features/error/ErrorDisplay";
-import { PageLoading } from "@/features/loading/LoadingSpinner";
+import { SkeletonList } from "@/features/loading/Skeleton";
 import { useEffect, useState } from "react";
 
 type CaseItem = { id: number; title?: string; case_number?: string; status?: string };
@@ -28,7 +28,17 @@ export default function CasesPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  if (loading) return <PageLoading />;
+  if (loading) {
+    return (
+      <div>
+        <Skeleton width="35%" height={28} style={{ marginBottom: "0.5rem" }} />
+        <Skeleton width="55%" height={18} style={{ marginBottom: "1.5rem" }} />
+        <div className="card" style={{ padding: "1.5rem" }}>
+          <SkeletonList count={6} />
+        </div>
+      </div>
+    );
+  }
   if (error) return <ErrorDisplay message={error} onRetry={() => window.location.reload()} />;
 
   return (

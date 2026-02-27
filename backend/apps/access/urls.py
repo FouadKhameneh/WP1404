@@ -6,11 +6,13 @@ from apps.access.views import (
     PermissionListCreateAPIView,
     RoleDetailAPIView,
     RoleListCreateAPIView,
+    UserListAPIView,
     UserRoleAssignmentDeleteAPIView,
     UserRoleAssignmentListCreateAPIView,
 )
 
 urlpatterns = [
+    path("users/", UserListAPIView.as_view(), name="access-user-list"),
     path("permissions/", PermissionListCreateAPIView.as_view(), name="access-permission-list-create"),
     path("permissions/<int:permission_id>/", PermissionDetailAPIView.as_view(), name="access-permission-detail"),
     path("roles/", RoleListCreateAPIView.as_view(), name="access-role-list-create"),

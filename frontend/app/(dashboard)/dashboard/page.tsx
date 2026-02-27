@@ -3,7 +3,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { ErrorDisplay } from "@/features/error/ErrorDisplay";
-import { PageLoading } from "@/features/loading/LoadingSpinner";
+import { Skeleton } from "@/features/loading/Skeleton";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -32,7 +32,30 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  if (loading) return <PageLoading />;
+  if (loading) {
+    return (
+      <div>
+        <Skeleton width="40%" height={28} style={{ marginBottom: "0.5rem" }} />
+        <Skeleton width="60%" height={18} style={{ marginBottom: "1.5rem" }} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="stat-card">
+              <Skeleton width={60} height={32} style={{ margin: "0 auto 0.25rem" }} />
+              <Skeleton width="80%" height={14} style={{ margin: "0 auto" }} />
+            </div>
+          ))}
+        </div>
+        <div className="card" style={{ padding: "1.5rem" }}>
+          <Skeleton width="25%" height={20} style={{ marginBottom: "1rem" }} />
+          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} width={100} height={40} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (error) return <ErrorDisplay message={error} onRetry={() => window.location.reload()} />;
 
   return (

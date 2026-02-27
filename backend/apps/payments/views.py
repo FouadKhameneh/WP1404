@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -140,7 +142,24 @@ class PaymentCallbackAPIView(APIView):
             else PaymentTransaction.Status.FAILED
         )
         transaction.save(update_fields=["callback_data", "verified_at", "status", "updated_at"])
+
+        frontend_url = getattr(settings, "PAYMENT_RETURN_BASE_URL", "") or "http://localhost:3000"
+        if frontend_url:
+            return_url = f"{frontend_url.rstrip('/')}/payment/return?transaction_id={transaction.id}&status={transaction.status}"
+            return HttpResponseRedirect(return_url)
         return success_response(
             {"transaction_id": transaction.id, "status": transaction.status},
             status_code=status.HTTP_200_OK,
         )
+
+
+class PaymentTransactionStatusAPIView(APIView):
+    """GET: Retrieve transaction status. For payment return page verification."""
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, transaction_id):
+        transaction = get_object_or_404(PaymentTransaction, id=transaction_id)
+        serializer = PaymentTransactionSerializer(transaction)
+        return success_response(serializer.data, status_code=status.HTTP_200_OK)

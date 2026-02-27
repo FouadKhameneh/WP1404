@@ -45,6 +45,16 @@ class LoginSerializer(serializers.Serializer):
 
 
 class UserAuthSerializer(serializers.ModelSerializer):
+    roles = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "username", "email", "phone", "national_id", "full_name"]
+        fields = ["id", "username", "email", "phone", "national_id", "full_name", "is_staff", "roles"]
+
+    def get_roles(self, obj):
+        from apps.access.models import UserRoleAssignment
+        return list(
+            UserRoleAssignment.objects.filter(user=obj)
+            .select_related("role")
+            .values_list("role__name", flat=True)
+        )

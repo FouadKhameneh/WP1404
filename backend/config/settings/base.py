@@ -158,6 +158,9 @@ SPECTACULAR_SETTINGS = {
 
 CORS_ALLOW_ALL_ORIGINS = env_bool("CORS_ALLOW_ALL_ORIGINS", False)
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:3000")
+
+# Payment gateway return: frontend URL for redirect after payment (صفحه بازگشت از درگاه پرداخت)
+PAYMENT_RETURN_BASE_URL = os.getenv("PAYMENT_RETURN_BASE_URL", "http://localhost:3000")
 CORS_ALLOW_CREDENTIALS = env_bool("CORS_ALLOW_CREDENTIALS", True)
 
 log_level = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()

@@ -10,6 +10,7 @@ export type User = {
   full_name?: string;
   roles?: string[];
   permissions?: string[];
+  is_staff?: boolean;
 };
 
 type AuthState = {

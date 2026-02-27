@@ -5,11 +5,13 @@ from apps.reports.views import (
     CaseCountsAPIView,
     GeneralReportAPIView,
     HomepageStatsAPIView,
+    LandingStatsAPIView,
     RewardOutcomesAPIView,
     WantedRankingsAPIView,
 )
 
 urlpatterns = [
+    path("landing-stats/", LandingStatsAPIView.as_view(), name="reports-landing-stats"),
     path("homepage/", HomepageStatsAPIView.as_view(), name="reports-homepage"),
     path("cases/", CaseCountsAPIView.as_view(), name="reports-case-counts"),
     path("approvals/", ApprovalsStatsAPIView.as_view(), name="reports-approvals"),

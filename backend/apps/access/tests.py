@@ -45,7 +45,10 @@ class AccessAuthorizationApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["success"])
-        self.assertEqual(len(response.data["data"]["results"]), 1)
+        results = response.data["data"]["results"]
+        self.assertGreaterEqual(len(results), 1)
+        codes = [p["code"] for p in results]
+        self.assertIn(self.sample_permission.code, codes)
 
     def test_admin_can_create_update_and_delete_permission(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")

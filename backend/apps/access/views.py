@@ -17,6 +17,18 @@ from apps.identity.services import error_response, success_response
 from apps.notifications.services import log_timeline_event
 
 
+class UserListAPIView(APIView):
+    """List users for admin panel. Admin only."""
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        User = get_user_model()
+        users = User.objects.all().order_by("username")[:200]
+        data = [{"id": u.id, "username": u.username, "full_name": getattr(u, "full_name", "") or u.username, "email": u.email} for u in users]
+        return success_response({"results": data}, status_code=status.HTTP_200_OK)
+
+
 class PermissionListCreateAPIView(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAdminUser]

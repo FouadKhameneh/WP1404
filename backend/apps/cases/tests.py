@@ -883,7 +883,7 @@ class CaptainChiefReferralFlowTests(APITestCase):
             status=Case.Status.SUSPECT_ASSESSMENT,
             created_by=self.admin_user,
         )
-        self.transition_url = "/api/v1/cases/{}/transition-status/"
+        self.transition_url = "/api/v1/cases/cases/{}/transition-status/"
 
     def test_captain_can_refer_normal_case_to_judiciary(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.captain_token.key}")

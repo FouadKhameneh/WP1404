@@ -14,13 +14,23 @@ from apps.evidence.models import (
     Evidence,
     EvidenceLink,
     EvidenceReview,
+    IdentificationEvidence,
+    OtherEvidence,
+    VehicleEvidence,
+    WitnessTestimony,
     WitnessTestimonyAttachment,
 )
 from apps.evidence.serializers import (
+    BiologicalMedicalCreateSerializer,
     EvidenceLinkCreateSerializer,
     EvidenceLinkSerializer,
+    EvidenceListSerializer,
     EvidenceReviewCreateSerializer,
     EvidenceReviewSerializer,
+    IdentificationEvidenceCreateSerializer,
+    OtherEvidenceCreateSerializer,
+    VehicleEvidenceCreateSerializer,
+    WitnessTestimonyCreateSerializer,
 )
 from apps.evidence.services.media import generate_signed_token, verify_signed_token
 from apps.identity.services import error_response, success_response
@@ -264,6 +274,184 @@ class EvidenceMediaAccessByTokenAPIView(APIView):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         return response
+
+
+# --- Case evidence list and create ---
+
+
+class CaseEvidenceListAPIView(APIView):
+    """
+    GET: List all evidence for a case. Query: ?case_id=<id>
+    Requires cases.cases.view.
+    """
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["cases.cases.view"]
+
+    def get(self, request):
+        case_id = request.query_params.get("case_id")
+        if not case_id:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="case_id query parameter is required.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            case_id = int(case_id)
+        except (TypeError, ValueError):
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="case_id must be an integer.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        from apps.cases.models import Case
+        case = get_object_or_404(Case, pk=case_id)
+        qs = Evidence.objects.filter(case=case).select_related("registrar", "case").order_by("-registered_at", "-created_at")
+        serializer = EvidenceListSerializer(qs, many=True)
+        return success_response({"evidence": serializer.data})
+
+
+class CaseEvidenceCreateAPIView(APIView):
+    """
+    POST: Create evidence for a case. Body must include case_id, evidence_type, and type-specific fields.
+    evidence_type: witness_testimony | biological_medical | vehicle | identification | other
+    """
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, HasRBACPermissions]
+    required_permission_codes = ["evidence.create"]
+
+    def post(self, request):
+        case_id = request.data.get("case_id")
+        evidence_type = request.data.get("evidence_type")
+        if not case_id:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="case_id is required.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if not evidence_type:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="evidence_type is required.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        from apps.cases.models import Case
+        case = get_object_or_404(Case, pk=case_id)
+
+        registered_at = request.data.get("registered_at") or timezone.now().isoformat()
+
+        if evidence_type == "witness_testimony":
+            ser = WitnessTestimonyCreateSerializer(data={**request.data, "registered_at": registered_at})
+            if not ser.is_valid():
+                return error_response(
+                    code="VALIDATION_ERROR",
+                    message="Request validation failed.",
+                    details=ser.errors,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            obj = WitnessTestimony.objects.create(
+                case=case,
+                title=ser.validated_data["title"],
+                description=ser.validated_data.get("description", ""),
+                transcript=ser.validated_data.get("transcript", ""),
+                registered_at=ser.validated_data["registered_at"],
+                registrar=request.user,
+            )
+        elif evidence_type == "biological_medical":
+            ser = BiologicalMedicalCreateSerializer(data={**request.data, "registered_at": registered_at})
+            if not ser.is_valid():
+                return error_response(
+                    code="VALIDATION_ERROR",
+                    message="Request validation failed.",
+                    details=ser.errors,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            obj = BiologicalMedicalEvidence.objects.create(
+                case=case,
+                title=ser.validated_data["title"],
+                description=ser.validated_data.get("description", ""),
+                registered_at=ser.validated_data["registered_at"],
+                registrar=request.user,
+            )
+        elif evidence_type == "vehicle":
+            ser = VehicleEvidenceCreateSerializer(data={**request.data, "registered_at": registered_at})
+            if not ser.is_valid():
+                return error_response(
+                    code="VALIDATION_ERROR",
+                    message="Request validation failed.",
+                    details=ser.errors,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            v = ser.validated_data
+            plate = (v.get("plate") or "").strip()
+            serial = (v.get("serial_number") or "").strip()
+            if plate and serial:
+                return error_response(
+                    code="VALIDATION_ERROR",
+                    message="Vehicle: provide either plate or serial_number, not both.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            if not plate and not serial:
+                return error_response(
+                    code="VALIDATION_ERROR",
+                    message="Vehicle: provide either plate or serial_number.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            obj = VehicleEvidence.objects.create(
+                case=case,
+                title=v["title"],
+                description=v.get("description", ""),
+                registered_at=v["registered_at"],
+                registrar=request.user,
+                model=v["model"],
+                color=v["color"],
+                plate=plate,
+                serial_number=serial,
+            )
+        elif evidence_type == "identification":
+            ser = IdentificationEvidenceCreateSerializer(data={**request.data, "registered_at": registered_at})
+            if not ser.is_valid():
+                return error_response(
+                    code="VALIDATION_ERROR",
+                    message="Request validation failed.",
+                    details=ser.errors,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            obj = IdentificationEvidence.objects.create(
+                case=case,
+                title=ser.validated_data["title"],
+                description=ser.validated_data.get("description", ""),
+                registered_at=ser.validated_data["registered_at"],
+                registrar=request.user,
+                attributes=ser.validated_data.get("attributes", {}),
+            )
+        elif evidence_type == "other":
+            ser = OtherEvidenceCreateSerializer(data={**request.data, "registered_at": registered_at})
+            if not ser.is_valid():
+                return error_response(
+                    code="VALIDATION_ERROR",
+                    message="Request validation failed.",
+                    details=ser.errors,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            obj = OtherEvidence.objects.create(
+                case=case,
+                title=ser.validated_data["title"],
+                description=ser.validated_data.get("description", ""),
+                registered_at=ser.validated_data["registered_at"],
+                registrar=request.user,
+            )
+        else:
+            return error_response(
+                code="VALIDATION_ERROR",
+                message="Invalid evidence_type. Use: witness_testimony, biological_medical, vehicle, identification, other.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        out = EvidenceListSerializer(obj).data
+        return success_response({"evidence": out}, status_code=status.HTTP_201_CREATED)
 
 
 # --- Evidence links (detective board graph) ---

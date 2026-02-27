@@ -22,7 +22,7 @@ class EvidenceModelInvariantTests(TestCase):
             title="Case for evidence",
             summary="",
             level=Case.Level.LEVEL_1,
-            source_type=Case.SourceType.SCENE,
+            source_type=Case.SourceType.SCENE_REPORT,
             status=Case.Status.SUBMITTED,
             created_by=self.user,
         )

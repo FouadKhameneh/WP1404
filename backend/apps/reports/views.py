@@ -1,6 +1,6 @@
 from rest_framework import status
 from rest_framework.authentication import TokenAuthentication
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasRBACPermissions
@@ -13,6 +13,22 @@ from apps.reports.services import (
     get_reward_outcomes,
     get_wanted_rankings,
 )
+
+
+class LandingStatsAPIView(APIView):
+    """Public stats for landing page: total closed cases, staff count, active cases. No auth required."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        data = get_homepage_stats()
+        return success_response({
+            "closed_cases": data.get("closed_cases", 0),
+            "staff_count": data.get("staff_count", 0),
+            "active_cases": data.get("active_cases", 0),
+            "total_cases": data.get("total_cases", 0),
+        }, status_code=status.HTTP_200_OK)
 
 
 class HomepageStatsAPIView(APIView):

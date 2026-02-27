@@ -31,6 +31,7 @@ export default function DashboardLayout({
   if (!token) return null;
 
   const roles = (user?.roles ?? []).join(", ") || "—";
+  const isAdmin = user?.is_staff === true || user?.roles?.some((r: string) => String(r).toLowerCase().includes("admin"));
   const navItems = [
     { href: "/dashboard", label: "داشبورد" },
     { href: "/dashboard/cases", label: "پرونده‌ها" },
@@ -38,6 +39,7 @@ export default function DashboardLayout({
     { href: "/dashboard/evidence", label: "مدارک" },
     { href: "/dashboard/reports", label: "گزارش‌ها" },
     { href: "/dashboard/wanted", label: "تحت تعقیب" },
+    ...(isAdmin ? [{ href: "/dashboard/admin", label: "پنل ادمین" }] : []),
   ];
 
   return (

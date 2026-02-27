@@ -1,11 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import Home from "@/app/page";
 
 describe("Home page", () => {
-  it("renders welcome and navigation links", () => {
+  it("renders welcome and navigation links", async () => {
     render(<Home />);
-    expect(screen.getByText(/Police Digital Operations/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /login/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /register/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /Police Digital Operations/i })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: /ورود/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /ثبت‌نام/i })).toBeInTheDocument();
   });
 });

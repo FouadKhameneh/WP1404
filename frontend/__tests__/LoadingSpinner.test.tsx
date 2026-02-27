@@ -11,6 +11,6 @@ describe("LoadingSpinner", () => {
 describe("PageLoading", () => {
   it("renders loading text", () => {
     render(<PageLoading />);
-    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    expect(screen.getByText(/در حال بارگذاری/i)).toBeInTheDocument();
   });
 });

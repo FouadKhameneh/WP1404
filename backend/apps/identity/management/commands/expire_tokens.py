@@ -40,4 +40,3 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Would expire {count} token(s) (users inactive > {days} days)."))
         else:
             self.stdout.write(self.style.SUCCESS(f"Expired {count} token(s) (users inactive > {days} days)."))
-</think>

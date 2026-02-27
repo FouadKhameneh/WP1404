@@ -78,7 +78,11 @@ class PaymentModuleTests(APITestCase):
             {"transaction_id": txn.id, "ref": "MOCK-1", "status": "ok"},
             format="json",
         )
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        # Callback redirects to frontend return page (چک‌پوینت: صفحه بازگشت از درگاه)
+        self.assertEqual(r.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/payment/return", r["Location"])
+        self.assertIn(f"transaction_id={txn.id}", r["Location"])
+        self.assertIn("status=success", r["Location"])
         txn.refresh_from_db()
         self.assertEqual(txn.status, PaymentTransaction.Status.SUCCESS)
         self.assertIsNotNone(txn.verified_at)

@@ -5,13 +5,13 @@ describe("ErrorDisplay", () => {
   it("renders message and optional retry button", () => {
     render(<ErrorDisplay message="Something failed" onRetry={() => {}} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Something failed");
-    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /تلاش مجدد/i })).toBeInTheDocument();
   });
 
   it("calls onRetry when retry is clicked", () => {
     const onRetry = jest.fn();
     render(<ErrorDisplay message="Error" onRetry={onRetry} />);
-    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+    fireEvent.click(screen.getByRole("button", { name: /تلاش مجدد/i }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });

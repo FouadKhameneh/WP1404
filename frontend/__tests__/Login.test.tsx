@@ -13,8 +13,8 @@ describe("Login page", () => {
         <LoginPage />
       </AuthProvider>
     );
-    expect(screen.getByRole("heading", { name: /login/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /ورود/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/رمز عبور/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ورود/i })).toBeInTheDocument();
   });
 });

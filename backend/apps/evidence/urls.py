@@ -3,6 +3,8 @@ from django.urls import path
 from apps.evidence.views import (
     BiologicalEvidenceCoronerDecisionAPIView,
     BiologicalEvidenceReviewListAPIView,
+    CaseEvidenceCreateAPIView,
+    CaseEvidenceListAPIView,
     EvidenceLinkDetailAPIView,
     EvidenceLinkListCreateAPIView,
     EvidenceMediaAccessByTokenAPIView,
@@ -11,6 +13,8 @@ from apps.evidence.views import (
 )
 
 urlpatterns = [
+    path("cases/", CaseEvidenceListAPIView.as_view(), name="evidence-cases-list"),
+    path("cases/create/", CaseEvidenceCreateAPIView.as_view(), name="evidence-cases-create"),
     path(
         "biological/<int:evidence_id>/reviews/",
         BiologicalEvidenceReviewListAPIView.as_view(),
