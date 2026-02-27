@@ -3,7 +3,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { ErrorDisplay } from "@/features/error/ErrorDisplay";
-import { SkeletonList } from "@/features/loading/Skeleton";
+import { Skeleton, SkeletonList } from "@/features/loading/Skeleton";
 import { useEffect, useState } from "react";
 
 type CaseItem = { id: number; title?: string; case_number?: string; status?: string };
